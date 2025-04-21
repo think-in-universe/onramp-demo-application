@@ -23,6 +23,13 @@
         "ignorePattern": "^\\s*var\\s.+=\\s*require\\s*\\("
       }
     ],
-    "prettier/prettier": "error"
+    "prettier/prettier": [
+      "error",
+      {
+        "singleQuote": false,
+        "trailingComma": "es5",
+        "printWidth": 80
+      }
+    ]
   }
 }

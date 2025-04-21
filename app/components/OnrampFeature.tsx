@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { useAccount, useConnect } from "wagmi";
+import { useAccount, useConnect, useSignMessage } from "wagmi";
+import type { SendTransactionParameters } from "@wagmi/core";
 import { generateOnrampURL } from "../utils/rampUtils";
 import {
   fetchBuyConfig,
@@ -16,6 +17,12 @@ import {
 import GeneratedLinkModal from "./GeneratedLinkModal";
 import { fetchCryptoPrices } from "../utils/priceUtils";
 import { WalletDefault } from "@coinbase/onchainkit/wallet";
+import { BaseTokenInfo, DepositWidget, SwapWidget, UnifiedTokenInfo, WithdrawWidget } from "@defuse-protocol/defuse-sdk";
+import { LIST_TOKENS } from "../utils/tokens";
+import { useTokenList } from "../hooks/useTokenList";
+import { renderAppLink } from "../utils/renderAppLink";
+import { useEVMWalletActions } from "../hooks/useEVMWalletActions";
+import { parseErc6492Signature, isErc6492Signature, verifyMessage } from "viem";
 
 // Define payment method descriptions
 const PAYMENT_METHOD_DESCRIPTIONS: Record<string, string> = {
@@ -168,7 +175,8 @@ const US_STATES = [
 export default function OnrampFeature() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
-  const [activeTab, setActiveTab] = useState<"api" | "url">("api");
+  const { signMessageAsync } = useSignMessage();
+  const [activeTab, setActiveTab] = useState<"api" | "url" | "intents">("intents");
   const [selectedAsset, setSelectedAsset] = useState("USDC");
   const [amount, setAmount] = useState("10");
   const [selectedNetwork, setSelectedNetwork] = useState("base");
@@ -181,6 +189,14 @@ export default function OnrampFeature() {
   const [selectedState, setSelectedState] = useState("");
   const [cryptoPrices, setCryptoPrices] = useState<Record<string, number>>({});
   const [isLoadingPrices, setIsLoadingPrices] = useState(false);
+  const { sendTransactions } = useEVMWalletActions();
+
+  // const [signature, setSignature] = useState<Hex | undefined>(undefined);
+  // const { signTypedData } = useSignTypedData({
+  //   mutation: { onSuccess: (sig) => setSignature(sig) },
+  // });
+
+  const tokenList = useTokenList(LIST_TOKENS);
 
   // Define supported payment methods
   const paymentMethods = [
@@ -412,6 +428,16 @@ export default function OnrampFeature() {
     window.open(generatedUrl, "_blank");
   };
 
+  const sendTransaction = async (
+    tx: SendTransactionParameters
+  ): Promise<string> => {
+    const result = await sendTransactions(tx as SendTransactionParameters);
+    if (result === undefined) {
+      throw new Error(`Transaction failed for EVM`);
+    }
+    return result;
+  };
+
   return (
     <div className="bg-white dark:bg-gray-900 py-16">
       <div className="container mx-auto px-4">
@@ -425,6 +451,17 @@ export default function OnrampFeature() {
               {/* Integration Method Tabs */}
               <div className="mb-8">
                 <div className="flex space-x-2 mb-4">
+                  <button
+                    className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                      activeTab === "intents"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-800 border border-gray-300 hover:bg-gray-200"
+                    }`}
+                    onClick={() => setActiveTab("intents")}
+                    aria-label="Switch to Intents"
+                  >
+                    Intents
+                  </button>
                   <button
                     className={`px-4 py-2 rounded-lg text-sm font-medium ${
                       activeTab === "api"
@@ -753,7 +790,109 @@ export default function OnrampFeature() {
               </h3>
 
               <div className="flex-grow flex items-center justify-center">
-                {activeTab === "api" ? (
+                {activeTab === "intents" ? (
+                  <div className="text-center" style={{ display: "none" }}>
+                    <div>
+                      <h1>Deposit</h1>
+                      <DepositWidget
+                        tokenList={tokenList}
+                        userAddress={address || undefined}
+                        chainType={"evm"}
+                        sendTransactionEVM={async ({ from, ...tx }) => {
+                          const result = await sendTransaction({
+                            ...tx,
+                            account: from,
+                          });
+                          return Array.isArray(result)
+                            ? result[0].transaction.hash
+                            : result;
+                        }}
+                        renderHostAppLink={renderAppLink}
+                        sendTransactionNear={async () => null}
+                        sendTransactionSolana={async () => null}
+                      />
+                    </div>
+
+                    <div>
+                      <h1>Swap</h1>
+                      <SwapWidget
+                        theme="dark"
+                        tokenList={tokenList}
+                        userAddress={address || null}
+                        userChainType={"evm"}
+                        signMessage={async (params) => {
+                          const message = params.ERC191.message;
+                          const signature = await signMessageAsync({
+                            message,
+                          });
+                          const signatureData =
+                            parseErc6492Signature(signature).signature;
+
+                          console.log("signed swap message", {
+                            message,
+                            signature,
+                            signatureData,
+                            erc6492: isErc6492Signature(signature),
+                            parsed: parseErc6492Signature(signature),
+                            equal: signatureData === signature,
+                          });
+
+                          verifyMessage({
+                            address: address! as `0x${string}`,
+                            message,
+                            signature,
+                          })
+                            .then(console.log)
+                            .catch(console.error);
+
+                          return {
+                            type: "ERC191",
+                            signatureData,
+                            signedData: { message },
+                          };
+                        }}
+                        sendNearTransaction={async () => {
+                          const result = { txHash: "123" };
+                          return result;
+                        }}
+                        onSuccessSwap={() => {}}
+                        renderHostAppLink={renderAppLink}
+                      />
+                    </div>
+
+                    <div>
+                      <h1>Withdraw</h1>
+                      <WithdrawWidget
+                        tokenList={tokenList}
+                        userAddress={address || undefined}
+                        chainType={"evm"}
+                        sendNearTransaction={async () => null}
+                        signMessage={async (params) => {
+                          const message = params.ERC191.message;
+
+                          // const signature = await signTypedData(message);
+                          const signature = await signMessageAsync({
+                            message,
+                          });
+                          const signatureData =
+                            parseErc6492Signature(signature).signature;
+
+                          console.log("signed withdraw message", {
+                            message,
+                            signature,
+                            signatureData,
+                          });
+                          return {
+                            type: "ERC191",
+                            signatureData,
+                            signedData: { message },
+                          };
+                        }}
+                        renderHostAppLink={renderAppLink}
+                      />
+                    </div>
+                  </div>
+                ) : activeTab === "api" ? (
                   <div className="text-center">
                     <div
                       className={`inline-block font-medium py-3 px-8 rounded-lg transition-all shadow-md hover:shadow-lg mb-4 cursor-pointer ${

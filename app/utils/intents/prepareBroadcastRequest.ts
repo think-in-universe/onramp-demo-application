@@ -17,12 +17,14 @@ export function prepareSwapSignedData(
     case "NEP413": {
       return {
         standard: "nep413",
-        payload: {
+        // TODO: This is a hack to return payload as a string.
+        // Needs to update MultiPayload to support correct payload type
+        payload: JSON.stringify({
           message: signature.signedData.message,
           nonce: base64.encode(signature.signedData.nonce),
           recipient: signature.signedData.recipient,
           callbackUrl: signature.signedData.callbackUrl,
-        },
+        }),
         public_key: signature.signatureData.publicKey, // publicKey is already in the correct format
         signature: transformNEP141Signature(signature.signatureData.signature),
       };

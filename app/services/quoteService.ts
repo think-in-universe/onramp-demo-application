@@ -299,7 +299,7 @@ export function calculateSplitAmounts(
   const remainingDecimals = amountIn.decimals;
 
   for (const tokenIn of uniqueTokensIn) {
-    const availableIn = balances[tokenIn.defuseAssetId] ?? 0n;
+    const availableIn = balances[tokenIn.defuseAssetId] ?? BigInt(0);
 
     // Convert remaining amount to token's decimals
     const normalizedRemainingAmount = adjustDecimals(
@@ -310,7 +310,7 @@ export function calculateSplitAmounts(
 
     const amountToQuote = min(availableIn, normalizedRemainingAmount);
 
-    if (amountToQuote > 0n) {
+    if (amountToQuote > BigInt(0)) {
       amountsToQuote[tokenIn.defuseAssetId] = amountToQuote;
 
       // Convert back to original decimals to subtract from remaining
@@ -321,10 +321,10 @@ export function calculateSplitAmounts(
       );
     }
 
-    if (remainingAmount === 0n) break;
+    if (remainingAmount === BigInt(0)) break;
   }
 
-  if (remainingAmount !== 0n) {
+  if (remainingAmount !== BigInt(0)) {
     throw new AmountMismatchError(
       { amount: amountIn.amount, decimals: amountIn.decimals },
       { amount: remainingAmount, decimals: remainingDecimals }

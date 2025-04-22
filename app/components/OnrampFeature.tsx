@@ -380,33 +380,31 @@ export default function OnrampFeature() {
     return () => clearInterval(intervalId);
   }, []);
 
-  const fetchDepositAddress = async (
-    address: string,
-    selectedNetwork: string,
-    isIntents: boolean
-  ) => {
-    if (isIntents) {
-      selectedNetwork = "base";
-    }
-
-    const intentsUserId = address.toLowerCase() as IntentsUserId;
-    const chain = assetNetworkAdapter[selectedNetwork as SupportedChainName];
-
-    console.log("fetching deposit address for", {
-      address,
-      intentsUserId,
-      selectedNetwork,
-      chain,
-    });
-
-    const depositAddress = await generateDepositAddress(intentsUserId, chain);
-    setDepositAddress(depositAddress);
-  };
-
   // Fetch deposit address on component mount
   useEffect(() => {
     if (!address || !selectedNetwork) return;
-    fetchDepositAddress(address, selectedNetwork, isNearIntents);
+
+    const fetchDepositAddress = async () => {
+      let network = selectedNetwork;
+      if (isNearIntents) {
+        network = "base";
+      }
+
+      const intentsUserId = address.toLowerCase() as IntentsUserId;
+      const chain = assetNetworkAdapter[network as SupportedChainName];
+
+      console.log("fetching deposit address for", {
+        address,
+        intentsUserId,
+        network,
+        chain,
+      });
+
+      const depositAddress = await generateDepositAddress(intentsUserId, chain);
+      setDepositAddress(depositAddress);
+    };
+
+    fetchDepositAddress();
   }, [address, selectedNetwork, isNearIntents]);
 
   useEffect(() => {

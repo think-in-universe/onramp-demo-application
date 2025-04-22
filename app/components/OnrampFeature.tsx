@@ -104,6 +104,7 @@ const assetNetworkMap: Record<string, string[]> = {
     "unichain",
     "aptos",
     "bnb-chain",
+    "near",
   ],
   BTC: ["bitcoin", "bitcoin-lightning"],
   SOL: ["solana"],
@@ -207,6 +208,7 @@ export default function OnrampFeature() {
   const [depositAddress, setDepositAddress] = useState<string | undefined>(
     undefined
   );
+  const [isNearIntents, setIsNearIntents] = useState(false);
 
   // const [signature, setSignature] = useState<Hex | undefined>(undefined);
   // const { signTypedData } = useSignTypedData({
@@ -378,27 +380,42 @@ export default function OnrampFeature() {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Fetch deposit address on component mount
-  useEffect(() => {
-    if (!address || !selectedNetwork) return;
+  const fetchDepositAddress = async (
+    address: string,
+    selectedNetwork: string,
+    isIntents: boolean
+  ) => {
+    if (isIntents) {
+      selectedNetwork = "base";
+    }
 
+    const intentsUserId = address.toLowerCase() as IntentsUserId;
     const chain = assetNetworkAdapter[selectedNetwork as SupportedChainName];
+
     console.log("fetching deposit address for", {
       address,
+      intentsUserId,
       selectedNetwork,
       chain,
     });
 
-    const fetchDepositAddress = async () => {
-      const depositAddress = await generateDepositAddress(
-        address.toLowerCase() as IntentsUserId,
-        chain
-      );
-      setDepositAddress(depositAddress);
-    };
+    const depositAddress = await generateDepositAddress(intentsUserId, chain);
+    setDepositAddress(depositAddress);
+  };
 
-    fetchDepositAddress();
-  }, [address, selectedNetwork]);
+  // Fetch deposit address on component mount
+  useEffect(() => {
+    if (!address || !selectedNetwork) return;
+    fetchDepositAddress(address, selectedNetwork, isNearIntents);
+  }, [address, selectedNetwork, isNearIntents]);
+
+  useEffect(() => {
+    // NEAR USDC onramp is not supported yet, so we deposit to
+    // NEAR Intents deposit address, and withdraw USDC on NEAR
+    if (selectedNetwork === "near" && selectedAsset === "USDC") {
+      setIsNearIntents(true);
+    }
+  }, [selectedNetwork, selectedAsset]);
 
   // Handle asset change
   const handleAssetChange = (assetCode: string) => {

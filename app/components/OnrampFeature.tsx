@@ -17,12 +17,24 @@ import {
 import GeneratedLinkModal from "./GeneratedLinkModal";
 import { fetchCryptoPrices } from "../utils/priceUtils";
 import { WalletDefault } from "@coinbase/onchainkit/wallet";
-import { BaseTokenInfo, DepositWidget, SwapWidget, UnifiedTokenInfo, WithdrawWidget } from "@defuse-protocol/defuse-sdk";
+import {
+  BaseTokenInfo,
+  DepositWidget,
+  IntentsUserId,
+  SwapWidget,
+  UnifiedTokenInfo,
+  WithdrawWidget,
+} from "@defuse-protocol/defuse-sdk";
 import { LIST_TOKENS } from "../utils/tokens";
 import { useTokenList } from "../hooks/useTokenList";
 import { renderAppLink } from "../utils/renderAppLink";
 import { useEVMWalletActions } from "../hooks/useEVMWalletActions";
 import { parseErc6492Signature, isErc6492Signature, verifyMessage } from "viem";
+import { generateDepositAddress } from "../services/depositService";
+import { BlockchainEnum } from "../utils/intents/poaBridge/constants/blockchains";
+import { assetNetworkAdapter } from "../utils/intents/adapters";
+import { SupportedChainName } from "../utils/intents/types/base";
+import Image from "next/image";
 
 // Define payment method descriptions
 const PAYMENT_METHOD_DESCRIPTIONS: Record<string, string> = {
@@ -176,7 +188,9 @@ export default function OnrampFeature() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { signMessageAsync } = useSignMessage();
-  const [activeTab, setActiveTab] = useState<"api" | "url" | "intents">("intents");
+  const [activeTab, setActiveTab] = useState<"api" | "url" | "intents">(
+    "intents"
+  );
   const [selectedAsset, setSelectedAsset] = useState("USDC");
   const [amount, setAmount] = useState("10");
   const [selectedNetwork, setSelectedNetwork] = useState("base");
@@ -190,6 +204,9 @@ export default function OnrampFeature() {
   const [cryptoPrices, setCryptoPrices] = useState<Record<string, number>>({});
   const [isLoadingPrices, setIsLoadingPrices] = useState(false);
   const { sendTransactions } = useEVMWalletActions();
+  const [depositAddress, setDepositAddress] = useState<string | undefined>(
+    undefined
+  );
 
   // const [signature, setSignature] = useState<Hex | undefined>(undefined);
   // const { signTypedData } = useSignTypedData({
@@ -361,6 +378,28 @@ export default function OnrampFeature() {
     return () => clearInterval(intervalId);
   }, []);
 
+  // Fetch deposit address on component mount
+  useEffect(() => {
+    if (!address || !selectedNetwork) return;
+
+    const chain = assetNetworkAdapter[selectedNetwork as SupportedChainName];
+    console.log("fetching deposit address for", {
+      address,
+      selectedNetwork,
+      chain,
+    });
+
+    const fetchDepositAddress = async () => {
+      const depositAddress = await generateDepositAddress(
+        address.toLowerCase() as IntentsUserId,
+        chain
+      );
+      setDepositAddress(depositAddress);
+    };
+
+    fetchDepositAddress();
+  }, [address, selectedNetwork]);
+
   // Handle asset change
   const handleAssetChange = (assetCode: string) => {
     setSelectedAsset(assetCode);
@@ -388,7 +427,8 @@ export default function OnrampFeature() {
       network: selectedNetwork,
       paymentMethod: selectedPaymentMethod,
       paymentCurrency: selectedPaymentCurrency,
-      address: address || "0x0000000000000000000000000000000000000000",
+      // Onramp to the NEAR intents deposit address
+      address: depositAddress || "0x0000000000000000000000000000000000000000",
       redirectUrl: window.location.origin + "/onramp",
       enableGuestCheckout, // Add guest checkout option
     });
@@ -404,14 +444,16 @@ export default function OnrampFeature() {
       return;
     }
 
-    // Note: This is a demo app - actual payments require ownership of assets and sufficient funds
+    // Note: This is a demo app - actual payments require ownership of
+    // assets and sufficient funds
     const url = generateOnrampURL({
       asset: selectedAsset,
       amount,
       network: selectedNetwork,
       paymentMethod: selectedPaymentMethod,
       paymentCurrency: selectedPaymentCurrency,
-      address: address || "0x0000000000000000000000000000000000000000",
+      // Onramp to the NEAR intents deposit address
+      address: depositAddress || "0x0000000000000000000000000000000000000000",
       redirectUrl: window.location.origin + "/onramp",
       enableGuestCheckout, // Add guest checkout option
     });
@@ -760,6 +802,25 @@ export default function OnrampFeature() {
                 </p>
               </div>
 
+              {/* Deposit Address */}
+              <div className="mb-6">
+                <div className="flex items-center mb-2">
+                  <span className="mr-2">
+                    <Image
+                      src="/near-intents.png"
+                      alt="NEAR Intents Logo"
+                      width={16}
+                      height={16}
+                      className="rounded-md"
+                    />
+                  </span>
+                  <label className="text-gray-700 font-medium">
+                    NEAR Intents Deposit Address
+                  </label>
+                </div>
+                <p className="text-sm text-gray-500">{depositAddress}</p>
+              </div>
+
               {/* Action Button */}
               {activeTab === "api" ? (
                 <button
@@ -931,7 +992,7 @@ export default function OnrampFeature() {
                     </div>
                     <div className="mb-4">
                       <div className="text-sm text-gray-500 mb-1">
-                        You'll Pay
+                        {"You'll Pay"}
                       </div>
                       <div className="text-2xl font-bold text-gray-800">
                         {getCurrencySymbol(selectedPaymentCurrency)}
@@ -955,7 +1016,7 @@ export default function OnrampFeature() {
                     </div>
                     <div className="mb-4">
                       <div className="text-sm text-gray-500 mb-1">
-                        You'll Receive
+                        {"You'll Receive"}
                       </div>
                       <div className="flex items-center text-gray-800">
                         <span className="mr-1">

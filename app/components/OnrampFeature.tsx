@@ -1,3 +1,4 @@
+/* eslint-disable max-len */
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -19,6 +20,7 @@ import { fetchCryptoPrices } from "../utils/priceUtils";
 import { WalletDefault } from "@coinbase/onchainkit/wallet";
 import {
   BaseTokenInfo,
+  createWithdrawIntentMessage,
   DepositWidget,
   IntentsUserId,
   SwapWidget,
@@ -35,6 +37,9 @@ import { BlockchainEnum } from "../utils/intents/poaBridge/constants/blockchains
 import { assetNetworkAdapter } from "../utils/intents/adapters";
 import { SupportedChainName } from "../utils/intents/types/base";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
+import { publishIntent } from "../services/intentService";
+import { queryQuoteExactOut } from "../services/quoteService";
 
 // Define payment method descriptions
 const PAYMENT_METHOD_DESCRIPTIONS: Record<string, string> = {
@@ -189,12 +194,10 @@ export default function OnrampFeature() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { signMessageAsync } = useSignMessage();
-  const [activeTab, setActiveTab] = useState<"api" | "url" | "intents">(
-    "intents"
-  );
+  const [activeTab, setActiveTab] = useState<"api" | "url" | "intents">("api");
   const [selectedAsset, setSelectedAsset] = useState("USDC");
   const [amount, setAmount] = useState("10");
-  const [selectedNetwork, setSelectedNetwork] = useState("base");
+  const [selectedNetwork, setSelectedNetwork] = useState("near");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [generatedUrl, setGeneratedUrl] = useState("");
   const [showUrlModal, setShowUrlModal] = useState(false);
@@ -209,6 +212,9 @@ export default function OnrampFeature() {
     undefined
   );
   const [isNearIntents, setIsNearIntents] = useState(false);
+  const [nearRecipientAddress, setNearRecipientAddress] = useState("");
+
+  const searchParams = useSearchParams();
 
   // const [signature, setSignature] = useState<Hex | undefined>(undefined);
   // const { signTypedData } = useSignTypedData({
@@ -412,8 +418,135 @@ export default function OnrampFeature() {
     // NEAR Intents deposit address, and withdraw USDC on NEAR
     if (selectedNetwork === "near" && selectedAsset === "USDC") {
       setIsNearIntents(true);
+    } else {
+      setIsNearIntents(false);
     }
   }, [selectedNetwork, selectedAsset]);
+
+  useEffect(() => {
+    const type = searchParams.get("type");
+    const action = searchParams.get("action");
+    const network = searchParams.get("network");
+    const asset = searchParams.get("asset");
+    const amount = searchParams.get("amount");
+    const recipient = searchParams.get("recipient");
+
+    console.log("search params", {
+      type,
+      action,
+      network,
+      asset,
+      amount,
+      address,
+      recipient,
+      signMessageAsync,
+    });
+
+    if (
+      type === "intents" &&
+      action === "withdraw" &&
+      network === "near" &&
+      asset === "USDC" &&
+      address &&
+      amount &&
+      recipient &&
+      signMessageAsync
+    ) {
+      const tokenAccountId =
+        "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
+      const storageDeposit = BigInt(0); // BigInt("1250000000000000000000");
+      const paidCost = ((Number(storageDeposit) / 1e24) * 2.4 * 1e6).toFixed(0);
+      const amountIn = BigInt((Number(amount) * 1e6).toFixed(0));
+      const amountOut = amountIn - BigInt(2);
+      const amountAfterCost = amountOut - BigInt(paidCost);
+      const intentMessage = createWithdrawIntentMessage(
+        {
+          type: "to_near",
+          amount: amountAfterCost,
+          tokenAccountId,
+          receiverId: recipient,
+          storageDeposit,
+        },
+        {
+          signerId: address.toLowerCase() as IntentsUserId,
+        }
+      );
+
+      console.log("generated withdraw intent message", intentMessage);
+
+      const withdraw = async () => {
+        const quote = await queryQuoteExactOut(
+          {
+            tokenIn:
+              "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near",
+            tokenOut:
+              "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            exactAmountOut: amountOut,
+          },
+          { logBalanceSufficient: true }
+        );
+
+        console.log("quote", quote);
+
+        if (quote.tag === "err") {
+          throw new Error("No quotes found");
+        }
+
+        const intentObject = JSON.parse(intentMessage.ERC191.message);
+        if (Number(paidCost) > 0) {
+          intentObject.intents.unshift({
+            intent: "token_diff",
+            diff: {
+              "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1":
+                "-" + paidCost,
+              "nep141:wrap.near": storageDeposit.toString(),
+            },
+            referral: "near-intents.intents-referral.near",
+          });
+        }
+        intentObject.intents.unshift({
+          intent: "token_diff",
+          diff: {
+            "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near":
+              "-" + amountIn.toString(),
+            "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1":
+              amountOut.toString(),
+          },
+          referral: "near-intents.intents-referral.near",
+        });
+
+        const message = JSON.stringify(intentObject);
+        const signature = await signMessageAsync({
+          message,
+        });
+        const signatureData = parseErc6492Signature(signature).signature;
+
+        console.log("signed withdrawal message", {
+          message,
+          signature,
+          signatureData,
+          erc6492: isErc6492Signature(signature),
+          parsed: parseErc6492Signature(signature),
+          equal: signatureData === signature,
+        });
+
+        await publishIntent(
+          {
+            type: "ERC191",
+            signatureData,
+            signedData: { message },
+          },
+          {
+            userAddress: address,
+            userChainType: "evm",
+          },
+          quote.value.quoteHashes
+        );
+      };
+
+      withdraw();
+    }
+  }, [searchParams, address, signMessageAsync]);
 
   // Handle asset change
   const handleAssetChange = (assetCode: string) => {
@@ -427,6 +560,27 @@ export default function OnrampFeature() {
         setSelectedNetwork(getDefaultNetworkForAsset(assetCode));
       }
     }
+  };
+
+  const generateIntentsUrl = () => {
+    // TODO: support more networks besides NEAR
+    const type = "intents";
+    const action = "withdraw";
+    const network = "near";
+    const asset = selectedAsset;
+    const recipient = nearRecipientAddress;
+
+    const url = new URL(window.location.origin + "/onramp");
+    url.searchParams.set("type", type);
+    url.searchParams.set("action", action);
+    url.searchParams.set("network", network);
+    url.searchParams.set("asset", asset);
+    url.searchParams.set("amount", amount);
+    url.searchParams.set("recipient", recipient);
+
+    console.log("generated intents url", url.toString());
+
+    return url.toString();
   };
 
   // Generate one-time URL
@@ -444,7 +598,7 @@ export default function OnrampFeature() {
       paymentCurrency: selectedPaymentCurrency,
       // Onramp to the NEAR intents deposit address
       address: depositAddress || "0x0000000000000000000000000000000000000000",
-      redirectUrl: window.location.origin + "/onramp",
+      redirectUrl: generateIntentsUrl(),
       enableGuestCheckout, // Add guest checkout option
     });
 
@@ -469,7 +623,7 @@ export default function OnrampFeature() {
       paymentCurrency: selectedPaymentCurrency,
       // Onramp to the NEAR intents deposit address
       address: depositAddress || "0x0000000000000000000000000000000000000000",
-      redirectUrl: window.location.origin + "/onramp",
+      redirectUrl: generateIntentsUrl(),
       enableGuestCheckout, // Add guest checkout option
     });
 
@@ -508,7 +662,7 @@ export default function OnrampFeature() {
               {/* Integration Method Tabs */}
               <div className="mb-8">
                 <div className="flex space-x-2 mb-4">
-                  <button
+                  {/* <button
                     className={`px-4 py-2 rounded-lg text-sm font-medium ${
                       activeTab === "intents"
                         ? "bg-blue-600 text-white"
@@ -518,7 +672,7 @@ export default function OnrampFeature() {
                     aria-label="Switch to Intents"
                   >
                     Intents
-                  </button>
+                  </button> */}
                   <button
                     className={`px-4 py-2 rounded-lg text-sm font-medium ${
                       activeTab === "api"
@@ -730,6 +884,22 @@ export default function OnrampFeature() {
                 </div>
               </div>
 
+              {/* NEAR Intents Recipient Address */}
+              {isNearIntents && (
+                <div className="mb-6">
+                  <label className="block text-gray-700 mb-2 font-medium">
+                    NEAR Recipient Address (e.g. alice.near)
+                  </label>
+                  <input
+                    type="text"
+                    value={nearRecipientAddress}
+                    onChange={(e) => setNearRecipientAddress(e.target.value)}
+                    className="block w-full bg-white border border-gray-300 rounded-lg py-3 pl-4 pr-4 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter recipient address"
+                  />
+                </div>
+              )}
+
               {/* Payment Currency Selection */}
               <div className="mb-6">
                 <label className="block text-gray-700 mb-2 font-medium">
@@ -840,7 +1010,9 @@ export default function OnrampFeature() {
               {activeTab === "api" ? (
                 <button
                   onClick={handleOnramp}
-                  disabled={!isConnected}
+                  disabled={
+                    !isConnected || (isNearIntents && !nearRecipientAddress)
+                  }
                   className={`w-full py-3 px-4 rounded-lg font-medium transition-all ${
                     isConnected
                       ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg"
@@ -851,6 +1023,7 @@ export default function OnrampFeature() {
                 </button>
               ) : (
                 <button
+                  disabled={isNearIntents && !nearRecipientAddress}
                   onClick={handleGenerateUrl}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-all shadow-md hover:shadow-lg"
                 >

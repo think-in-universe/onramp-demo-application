@@ -45,26 +45,27 @@ export function deduplicateTokens(tokens: BaseTokenInfo[]): BaseTokenInfo[] {
   return Array.from(tokenMap.values());
 }
 
-export function computeTotalDeltaDifferentDecimals(
-  tokens: BaseTokenInfo[],
-  tokenDeltas: [string, bigint][]
-): TokenValue {
-  const mapping: Record<string, bigint> = {};
-  for (const [token, amount] of tokenDeltas) {
-    mapping[token] ??= 0n;
-    mapping[token] += amount;
-  }
+// export function computeTotalDeltaDifferentDecimals(
+//   tokens: BaseTokenInfo[],
+//   tokenDeltas: [string, bigint][]
+// ): TokenValue {
+//   const mapping: Record<string, bigint> = {};
+//   for (const [token, amount] of tokenDeltas) {
+//     mapping[token] ??= BigInt(0);
+//     mapping[token] += amount;
+//   }
 
-  return (
-    computeTotalBalanceDifferentDecimals(tokens, mapping, {
-      strict: false,
-    }) ?? { amount: 0n, decimals: 0 }
-  );
-}
+//   return (
+//     computeTotalBalanceDifferentDecimals(tokens, mapping, {
+//       strict: false,
+//     }) ?? { amount: 0n, decimals: 0 }
+//   );
+// }
 
 /**
- * Convert a unified token to a base token, by getting the first token in the group.
- * It should be used when you need to get *ANY* single token from a unified token.
+ * Convert a unified token to a base token, by getting the first
+ * token in the group. It should be used when you need to get
+ * *ANY* single token from a unified token.
  */
 export function getAnyBaseTokenInfo(
   token: BaseTokenInfo | UnifiedTokenInfo
@@ -144,7 +145,7 @@ export function addAmounts(
 ): TokenValue {
   const maxDecimals = Math.max(...values.map((v) => v.decimals));
 
-  let sum = 0n;
+  let sum = BigInt(0);
   for (const v of values) {
     sum += adjustDecimals(v.amount, v.decimals, maxDecimals);
   }
@@ -197,7 +198,7 @@ export function negateTokenValue(value: TokenValue): TokenValue {
  * 3000 bips = 0.3% = 0.003
  * 1000000 bips = 100% = 1
  */
-export const BASIS_POINTS_DENOMINATOR = 1_000_000n;
+export const BASIS_POINTS_DENOMINATOR = BigInt(1_000_000);
 
 /**
  * Calculates net amount by deducting fee from gross amount.
@@ -212,15 +213,16 @@ export function netDownAmount(amount: bigint, feeBip: number): bigint {
     );
   }
 
-  if (amount < 0n) {
+  if (amount < BigInt(0)) {
     throw new Error("Amount must be non-negative.");
   }
 
-  if (amount === 0n || feeBip === 0) return amount;
+  if (amount === BigInt(0) || feeBip === 0) return amount;
 
-  // Multiply first to maintain precision, then add BASIS_POINTS_DENOMINATOR-1 for ceiling division
+  // Multiply first to maintain precision, then add
+  // BASIS_POINTS_DENOMINATOR-1 for ceiling division
   const feeAmount =
-    (amount * BigInt(feeBip) + (BASIS_POINTS_DENOMINATOR - 1n)) /
+    (amount * BigInt(feeBip) + (BASIS_POINTS_DENOMINATOR - BigInt(1))) /
     BASIS_POINTS_DENOMINATOR;
 
   return amount - feeAmount;
@@ -239,16 +241,17 @@ export function grossUpAmount(amount: bigint, feeBip: number): bigint {
     );
   }
 
-  if (amount < 0n) {
+  if (amount < BigInt(0)) {
     throw new Error("Amount must be non-negative.");
   }
 
-  if (amount === 0n || feeBip === 0) return amount;
+  if (amount === BigInt(0) || feeBip === 0) return amount;
 
   const feeMultiplier = BASIS_POINTS_DENOMINATOR - BigInt(feeBip);
   // Multiply first, then add (denominator-1) for ceiling division
   const grossAmount =
-    (amount * BASIS_POINTS_DENOMINATOR + (feeMultiplier - 1n)) / feeMultiplier;
+    (amount * BASIS_POINTS_DENOMINATOR + (feeMultiplier - BigInt(1))) /
+    feeMultiplier;
 
   return grossAmount;
 }
@@ -263,7 +266,7 @@ export function accountSlippageExactIn(
   slippageBasisPoints: number
 ): [string, bigint][] {
   return delta.map(([token, amount]) => {
-    if (amount > 0n) {
+    if (amount > BigInt(0)) {
       const amountWithSlippage = netDownAmount(amount, slippageBasisPoints);
       return [token, amountWithSlippage];
     }

@@ -234,8 +234,10 @@ function min(a: bigint, b: bigint): bigint {
 }
 
 /**
- * First sorting per decimals ascending - Reason: as fewer decimals have coverage problems, it is better to use them first
- * Second sorting per decimals descending - Reason: use less items to cover the split
+ * First sorting per decimals ascending - Reason: as fewer decimals
+ * have coverage problems, it is better to use them first.
+ * Second sorting per decimals descending - Reason: use less items
+ * to cover the split
  */
 export function sortForOptimalAmountSplitting(
   uniqueTokensIn: BaseTokenInfo[],
@@ -279,8 +281,9 @@ export function sortForOptimalAmountSplitting(
 }
 
 /**
- * Function to calculate how to split the input amounts based on available balances.
- * Duplicate tokens are processed only once and their balances are considered only once.
+ * Function to calculate how to split the input amounts based
+ * on available balances. Duplicate tokens are processed only
+ * once and their balances are considered only once.
  */
 export function calculateSplitAmounts(
   tokensIn: TokenSlice[],

@@ -454,25 +454,9 @@ export default function OnrampFeature() {
     ) {
       const tokenAccountId =
         "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
-      const storageDeposit = BigInt(0); // BigInt("1250000000000000000000");
-      const paidCost = ((Number(storageDeposit) / 1e24) * 2.4 * 1e6).toFixed(0);
+      const storageDeposit = BigInt("1250000000000000000000");
       const amountIn = BigInt((Number(amount) * 1e6).toFixed(0));
       const amountOut = amountIn - BigInt(2);
-      const amountAfterCost = amountOut - BigInt(paidCost);
-      const intentMessage = createWithdrawIntentMessage(
-        {
-          type: "to_near",
-          amount: amountAfterCost,
-          tokenAccountId,
-          receiverId: recipient,
-          storageDeposit,
-        },
-        {
-          signerId: address.toLowerCase() as IntentsUserId,
-        }
-      );
-
-      console.log("generated withdraw intent message", intentMessage);
 
       const withdraw = async () => {
         const quote = await queryQuoteExactOut(
@@ -482,15 +466,42 @@ export default function OnrampFeature() {
             tokenOut:
               "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
             exactAmountOut: amountOut,
+            minDeadlineMs: 60 * 1000, // 1 minute
           },
           { logBalanceSufficient: true }
         );
 
-        console.log("quote", quote);
+        const quoteStorage = await queryQuoteExactOut(
+          {
+            tokenIn:
+              "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            tokenOut: "nep141:wrap.near",
+            exactAmountOut: storageDeposit,
+            minDeadlineMs: 10 * 60 * 1000, // 10 minutes
+          },
+          { logBalanceSufficient: true }
+        );
 
-        if (quote.tag === "err") {
+        if (quote.tag === "err" || quoteStorage.tag === "err") {
           throw new Error("No quotes found");
         }
+
+        const paidCost = -quoteStorage.value.tokenDeltas[0][1];
+        const amountAfterCost = amountOut - paidCost;
+        const intentMessage = createWithdrawIntentMessage(
+          {
+            type: "to_near",
+            amount: amountAfterCost,
+            tokenAccountId,
+            receiverId: recipient,
+            storageDeposit,
+          },
+          {
+            signerId: address.toLowerCase() as IntentsUserId,
+          }
+        );
+
+        console.log("generated withdraw intent message", intentMessage);
 
         const intentObject = JSON.parse(intentMessage.ERC191.message);
         if (Number(paidCost) > 0) {
@@ -498,7 +509,7 @@ export default function OnrampFeature() {
             intent: "token_diff",
             diff: {
               "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1":
-                "-" + paidCost,
+                "-" + paidCost.toString(),
               "nep141:wrap.near": storageDeposit.toString(),
             },
             referral: "near-intents.intents-referral.near",
@@ -540,7 +551,7 @@ export default function OnrampFeature() {
             userAddress: address,
             userChainType: "evm",
           },
-          quote.value.quoteHashes
+          [quote.value.quoteHashes[0], quoteStorage.value.quoteHashes[0]]
         );
       };
 

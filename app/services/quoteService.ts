@@ -163,7 +163,7 @@ export async function queryQuoteExactOut(
       defuse_asset_identifier_in: input.tokenIn,
       defuse_asset_identifier_out: input.tokenOut,
       exact_amount_out: input.exactAmountOut.toString(),
-      min_deadline_ms: input.minDeadlineMs ?? 10 * 3600 * 1000,
+      min_deadline_ms: input.minDeadlineMs ?? 10 * 60 * 1000, // 10 minutes
     },
 
     {

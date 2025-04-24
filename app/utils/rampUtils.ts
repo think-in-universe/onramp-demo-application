@@ -26,7 +26,7 @@ interface OfframpURLParams {
 }
 
 // Coinbase Developer Platform Project ID
-const CDP_PROJECT_ID = 'a353ad87-5af2-4bc7-af5b-884e6aabf088';
+const CDP_PROJECT_ID = process.env.NEXT_PUBLIC_CDP_PROJECT_ID!;
 
 /**
  * Generates a Coinbase Onramp URL with the provided parameters

@@ -601,10 +601,12 @@ export default function OnrampFeature() {
       return;
     }
 
+    const network = isNearIntents ? "base" : selectedNetwork;
+
     const url = generateOnrampURL({
       asset: selectedAsset,
       amount,
-      network: selectedNetwork,
+      network,
       paymentMethod: selectedPaymentMethod,
       paymentCurrency: selectedPaymentCurrency,
       // Onramp to the NEAR intents deposit address
@@ -624,12 +626,14 @@ export default function OnrampFeature() {
       return;
     }
 
+    const network = isNearIntents ? "base" : selectedNetwork;
+
     // Note: This is a demo app - actual payments require ownership of
     // assets and sufficient funds
     const url = generateOnrampURL({
       asset: selectedAsset,
       amount,
-      network: selectedNetwork,
+      network,
       paymentMethod: selectedPaymentMethod,
       paymentCurrency: selectedPaymentCurrency,
       // Onramp to the NEAR intents deposit address

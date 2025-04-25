@@ -25,7 +25,7 @@ export const getNearNativeBalance = async ({
 
     const balance = BigInt(parsed.amount);
     return balance < RESERVED_NEAR_BALANCE
-      ? 0n
+      ? BigInt(0)
       : balance - RESERVED_NEAR_BALANCE;
   } catch (err: unknown) {
     logger.error(
@@ -202,7 +202,7 @@ export const getSolanaSplBalance = async ({
     const balance = accounts.value.reduce((total, accountInfo) => {
       const decoded = AccountLayout.decode(accountInfo.account.data);
       return total + BigInt(decoded.amount.toString());
-    }, 0n);
+    }, BigInt(0));
 
     return balance;
   } catch (err: unknown) {

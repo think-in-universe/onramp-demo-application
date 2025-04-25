@@ -41,6 +41,7 @@ import { useSearchParams } from "next/navigation";
 import { publishIntent } from "../services/intentService";
 import { queryQuoteExactOut } from "../services/quoteService";
 import { getOnrampBuyUrl } from "@coinbase/onchainkit/fund";
+import { getNEP141StorageRequired } from "../services/nep141StorageService";
 
 // Define payment method descriptions
 const PAYMENT_METHOD_DESCRIPTIONS: Record<string, string> = {
@@ -455,11 +456,38 @@ export default function OnrampFeature() {
     ) {
       const tokenAccountId =
         "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
-      const storageDeposit = BigInt("1250000000000000000000");
+
       const amountIn = BigInt((Number(amount) * 1e6).toFixed(0));
       const amountOut = amountIn - BigInt(2);
 
+      const referral = "coinbase-intent.near"; // "near-intents.intents-referral.near"
+
       const withdraw = async () => {
+        const storageRequired = await getNEP141StorageRequired({
+          token: {
+            defuseAssetId:
+              "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            address:
+              "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            decimals: 6,
+            icon: "https://s2.coinmarketcap.com/static/img/coins/128x128/3408.png",
+            chainName: "near",
+            bridge: "direct",
+            symbol: "USDC",
+            name: "USD Coin",
+          },
+          userAccountId: recipient,
+        });
+
+        console.log("storage required", storageRequired);
+
+        if (storageRequired.tag === "err") {
+          throw new Error("Error fetching storage required");
+        }
+
+        const storageDeposit = storageRequired.value;
+        const needsStorageDeposit = storageDeposit > BigInt(0);
+
         const quote = await queryQuoteExactOut(
           {
             tokenIn:
@@ -472,23 +500,32 @@ export default function OnrampFeature() {
           { logBalanceSufficient: true }
         );
 
-        const quoteStorage = await queryQuoteExactOut(
-          {
-            tokenIn:
-              "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
-            tokenOut: "nep141:wrap.near",
-            exactAmountOut: storageDeposit,
-            minDeadlineMs: 10 * 60 * 1000, // 10 minutes
-          },
-          { logBalanceSufficient: true }
-        );
-
-        if (quote.tag === "err" || quoteStorage.tag === "err") {
+        if (quote.tag === "err") {
           throw new Error("No quotes found");
         }
 
-        const paidCost = -quoteStorage.value.tokenDeltas[0][1];
-        const amountAfterCost = amountOut - paidCost;
+        const quoteStorage = needsStorageDeposit
+          ? await queryQuoteExactOut(
+              {
+                tokenIn:
+                  "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+                tokenOut: "nep141:wrap.near",
+                exactAmountOut: storageDeposit,
+                minDeadlineMs: 10 * 60 * 1000, // 10 minutes
+              },
+              { logBalanceSufficient: true }
+            )
+          : null;
+
+        if (quoteStorage && quoteStorage.tag === "err") {
+          throw new Error("No quotes found");
+        }
+
+        const storageCost =
+          quoteStorage && quoteStorage.value
+            ? -quoteStorage.value.tokenDeltas[0][1]
+            : BigInt(0);
+        const amountAfterCost = amountOut - storageCost;
         const intentMessage = createWithdrawIntentMessage(
           {
             type: "to_near",
@@ -505,15 +542,15 @@ export default function OnrampFeature() {
         console.log("generated withdraw intent message", intentMessage);
 
         const intentObject = JSON.parse(intentMessage.ERC191.message);
-        if (Number(paidCost) > 0) {
+        if (Number(storageCost) > 0) {
           intentObject.intents.unshift({
             intent: "token_diff",
             diff: {
               "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1":
-                "-" + paidCost.toString(),
+                "-" + storageCost.toString(),
               "nep141:wrap.near": storageDeposit.toString(),
             },
-            referral: "near-intents.intents-referral.near",
+            referral,
           });
         }
         intentObject.intents.unshift({
@@ -524,7 +561,7 @@ export default function OnrampFeature() {
             "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1":
               amountOut.toString(),
           },
-          referral: "near-intents.intents-referral.near",
+          referral,
         });
 
         const message = JSON.stringify(intentObject);
@@ -542,6 +579,11 @@ export default function OnrampFeature() {
           equal: signatureData === signature,
         });
 
+        const quoteHashes =
+          quoteStorage && quoteStorage.value
+            ? [quote.value.quoteHashes[0], quoteStorage.value.quoteHashes[0]]
+            : [quote.value.quoteHashes[0]];
+
         await publishIntent(
           {
             type: "ERC191",
@@ -552,7 +594,7 @@ export default function OnrampFeature() {
             userAddress: address,
             userChainType: "evm",
           },
-          [quote.value.quoteHashes[0], quoteStorage.value.quoteHashes[0]]
+          quoteHashes
         );
       };
 

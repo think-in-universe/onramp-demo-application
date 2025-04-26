@@ -1,11 +1,11 @@
 import type {
   BaseTokenInfo,
   UnifiedTokenInfo,
-} from "@defuse-protocol/defuse-sdk"
+} from "@defuse-protocol/defuse-sdk";
 
 type TokenWithTags =
   | (BaseTokenInfo & { tags?: string[] })
-  | (UnifiedTokenInfo & { tags?: string[] })
+  | (UnifiedTokenInfo & { tags?: string[] });
 
 export const LIST_TOKENS: TokenWithTags[] = [
   {

@@ -19,12 +19,11 @@ import GeneratedLinkModal from "./GeneratedLinkModal";
 import { fetchCryptoPrices } from "../utils/priceUtils";
 import { WalletDefault } from "@coinbase/onchainkit/wallet";
 import {
-  BaseTokenInfo,
   createWithdrawIntentMessage,
   DepositWidget,
   IntentsUserId,
+  isBaseToken,
   SwapWidget,
-  UnifiedTokenInfo,
   WithdrawWidget,
 } from "@defuse-protocol/defuse-sdk";
 import { LIST_TOKENS } from "../utils/tokens";
@@ -33,7 +32,6 @@ import { renderAppLink } from "../utils/renderAppLink";
 import { useEVMWalletActions } from "../hooks/useEVMWalletActions";
 import { parseErc6492Signature, isErc6492Signature, verifyMessage } from "viem";
 import { generateDepositAddress } from "../services/depositService";
-import { BlockchainEnum } from "../utils/intents/poaBridge/constants/blockchains";
 import { assetNetworkAdapter } from "../utils/intents/adapters";
 import { SupportedChainName } from "../utils/intents/types/base";
 import Image from "next/image";
@@ -43,6 +41,8 @@ import { queryQuoteExactOut } from "../services/quoteService";
 import { getOnrampBuyUrl } from "@coinbase/onchainkit/fund";
 import { getNEP141StorageRequired } from "../services/nep141StorageService";
 import { waitForDepositsCompletion } from "../utils/intents/poaBridge/getPendingDeposits";
+import { getTokenAccountIds } from "../utils/intents/tokenUtils";
+import { NEP141_STORAGE_TOKEN_ID } from "../utils/intents/constants/tokens";
 
 // Define payment method descriptions
 const PAYMENT_METHOD_DESCRIPTIONS: Record<string, string> = {
@@ -453,12 +453,30 @@ export default function OnrampFeature() {
       address &&
       amount &&
       recipient &&
-      signMessageAsync
+      signMessageAsync &&
+      tokenList
     ) {
-      const tokenAccountId =
-        "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
+      const flattenedTokenList = tokenList.flatMap((token) =>
+        isBaseToken(token) ? [token] : token.groupedTokens
+      );
 
-      const amountIn = BigInt((Number(amount) * 1e6).toFixed(0));
+      // find token info from token list
+      const tokenIn = flattenedTokenList.find(
+        (token) => token.symbol === "USDC" && token.chainName === "base"
+      );
+      const tokenOut = flattenedTokenList.find(
+        (token) => token.symbol === asset && token.chainName === network
+      );
+
+      if (!tokenIn || !tokenOut) {
+        throw new Error("Token not found");
+      }
+
+      const amountIn = BigInt(
+        (Number(amount) * 10 ** tokenIn.decimals).toFixed(0)
+      );
+      // TODO: amount out should be estimated from the quote
+      // We need to add another function for query quote with amount in
       const amountOut = amountIn - BigInt(2);
 
       const referral = "coinbase-intent.near"; // "near-intents.intents-referral.near"
@@ -467,19 +485,23 @@ export default function OnrampFeature() {
         // wait for onramp deposit completion before start withdrawing
         await waitForDepositsCompletion(address.toLowerCase() as IntentsUserId);
 
-        const storageRequired = await getNEP141StorageRequired({
-          token: {
-            defuseAssetId:
-              "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
-            address:
-              "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
-            decimals: 6,
-            icon: "https://s2.coinmarketcap.com/static/img/coins/128x128/3408.png",
-            chainName: "near",
-            bridge: "direct",
-            symbol: "USDC",
-            name: "USD Coin",
+        // quote the swap amount with the exact amount out
+        const quote = await queryQuoteExactOut(
+          {
+            tokenIn: tokenIn.defuseAssetId,
+            tokenOut: tokenOut.defuseAssetId,
+            exactAmountOut: amountOut,
+            minDeadlineMs: 60 * 1000, // 1 minute
           },
+          { logBalanceSufficient: true }
+        );
+        if (quote.tag === "err") {
+          throw new Error("No quotes found");
+        }
+
+        // quote the storage token amount if needed
+        const storageRequired = await getNEP141StorageRequired({
+          token: tokenOut,
           userAccountId: recipient,
         });
 
@@ -488,53 +510,36 @@ export default function OnrampFeature() {
         if (storageRequired.tag === "err") {
           throw new Error("Error fetching storage required");
         }
-
         const storageDeposit = storageRequired.value;
         const needsStorageDeposit = storageDeposit > BigInt(0);
-
-        const quote = await queryQuoteExactOut(
-          {
-            tokenIn:
-              "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near",
-            tokenOut:
-              "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
-            exactAmountOut: amountOut,
-            minDeadlineMs: 60 * 1000, // 1 minute
-          },
-          { logBalanceSufficient: true }
-        );
-
-        if (quote.tag === "err") {
-          throw new Error("No quotes found");
-        }
-
         const quoteStorage = needsStorageDeposit
           ? await queryQuoteExactOut(
               {
-                tokenIn:
-                  "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
-                tokenOut: "nep141:wrap.near",
+                tokenIn: tokenOut.defuseAssetId,
+                tokenOut: NEP141_STORAGE_TOKEN_ID,
                 exactAmountOut: storageDeposit,
                 minDeadlineMs: 10 * 60 * 1000, // 10 minutes
               },
               { logBalanceSufficient: true }
             )
           : null;
-
         if (quoteStorage && quoteStorage.tag === "err") {
           throw new Error("No quotes found");
         }
 
+        // calculate the storage cost and remaining amount
         const storageCost =
           quoteStorage && quoteStorage.value
             ? -quoteStorage.value.tokenDeltas[0][1]
             : BigInt(0);
-        const amountAfterCost = amountOut - storageCost;
+        const remainingAmountOut = amountOut - storageCost;
+
+        // create the withdraw intent message
         const intentMessage = createWithdrawIntentMessage(
           {
             type: "to_near",
-            amount: amountAfterCost,
-            tokenAccountId,
+            amount: remainingAmountOut,
+            tokenAccountId: getTokenAccountIds([tokenOut])[0],
             receiverId: recipient,
             storageDeposit,
           },
@@ -546,28 +551,28 @@ export default function OnrampFeature() {
         console.log("generated withdraw intent message", intentMessage);
 
         const intentObject = JSON.parse(intentMessage.ERC191.message);
+        // add storage cost to the intent if needed
         if (Number(storageCost) > 0) {
           intentObject.intents.unshift({
             intent: "token_diff",
             diff: {
-              "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1":
-                "-" + storageCost.toString(),
-              "nep141:wrap.near": storageDeposit.toString(),
+              [tokenOut.defuseAssetId]: "-" + storageCost.toString(),
+              [NEP141_STORAGE_TOKEN_ID]: storageDeposit.toString(),
             },
             referral,
           });
         }
+        // add the swap intent
         intentObject.intents.unshift({
           intent: "token_diff",
           diff: {
-            "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near":
-              "-" + amountIn.toString(),
-            "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1":
-              amountOut.toString(),
+            [tokenIn.defuseAssetId]: "-" + amountIn.toString(),
+            [tokenOut.defuseAssetId]: amountOut.toString(),
           },
           referral,
         });
 
+        // sign the intent message
         const message = JSON.stringify(intentObject);
         const signature = await signMessageAsync({
           message,
@@ -583,11 +588,11 @@ export default function OnrampFeature() {
           equal: signatureData === signature,
         });
 
+        // publish the intent
         const quoteHashes =
           quoteStorage && quoteStorage.value
             ? [quote.value.quoteHashes[0], quoteStorage.value.quoteHashes[0]]
             : [quote.value.quoteHashes[0]];
-
         await publishIntent(
           {
             type: "ERC191",
@@ -624,7 +629,7 @@ export default function OnrampFeature() {
     // TODO: support more networks besides NEAR
     const type = "intents";
     const action = "withdraw";
-    const network = "near";
+    const network = selectedNetwork;
     const asset = selectedAsset;
     const recipient = nearRecipientAddress;
 

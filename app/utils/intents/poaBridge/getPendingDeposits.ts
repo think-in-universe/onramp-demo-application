@@ -1,5 +1,4 @@
 /* eslint-disable prettier/prettier */
-import { logger } from "../logger";
 import type { IntentsUserId } from "../types/intentsUserId";
 import { wait } from "../wait";
 import { getDepositStatus, type types } from "./poaBridgeHttpClient";

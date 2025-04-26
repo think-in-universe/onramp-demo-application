@@ -42,6 +42,7 @@ import { publishIntent } from "../services/intentService";
 import { queryQuoteExactOut } from "../services/quoteService";
 import { getOnrampBuyUrl } from "@coinbase/onchainkit/fund";
 import { getNEP141StorageRequired } from "../services/nep141StorageService";
+import { waitForDepositsCompletion } from "../utils/intents/poaBridge/getPendingDeposits";
 
 // Define payment method descriptions
 const PAYMENT_METHOD_DESCRIPTIONS: Record<string, string> = {
@@ -463,6 +464,9 @@ export default function OnrampFeature() {
       const referral = "coinbase-intent.near"; // "near-intents.intents-referral.near"
 
       const withdraw = async () => {
+        // wait for onramp deposit completion before start withdrawing
+        await waitForDepositsCompletion(address.toLowerCase() as IntentsUserId);
+
         const storageRequired = await getNEP141StorageRequired({
           token: {
             defuseAssetId:

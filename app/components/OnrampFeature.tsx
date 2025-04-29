@@ -1402,13 +1402,15 @@ export default function OnrampFeature() {
           {/* URL Modal */}
           {intentProgress !== "none" && (
             <SimpleModal
-              title="Onramp Status"
+              title={`Onramp ${searchParams.get("asset") ?? "USDC"}`}
               content={(() => {
                 let header = "";
                 let description = "";
                 const amount = searchParams.get("amount") || "";
                 const asset = searchParams.get("asset") ?? "USDC";
                 const recipient = searchParams.get("recipient") || "";
+                const network =
+                  searchParams.get("network")?.toUpperCase() ?? "NEAR";
                 const explorerUrl = `https://nearblocks.io/address/${recipient}?tab=tokentxns`;
 
                 if (intentProgress === "depositing") {
@@ -1419,10 +1421,10 @@ export default function OnrampFeature() {
                   description = `Please wait while we query quotes for ${amount} ${asset}.`;
                 } else if (intentProgress === "signing") {
                   header = "Signing intent message ...";
-                  description = `Please sign the message in your wallet to send ${amount} ${asset} to the recipient address ${recipient}.`;
+                  description = `Please sign the message in your wallet to send ${amount} ${asset} to the recipient address ${recipient} on ${network}.`;
                 } else if (intentProgress === "withdrawing") {
-                  header = `${asset} is being sent to the recipient address ...`;
-                  description = `${amount} ${asset} will arrive in the recipient address ${recipient} soon.`;
+                  header = `${amount} ${asset} is being sent to the recipient address ...`;
+                  description = `${asset} will arrive in the address ${recipient} soon.`;
                 } else if (intentProgress === "done") {
                   header = `Onramp ${amount} ${asset} completed`;
                   description = "Please find the transactions in the explorer:";

@@ -654,33 +654,34 @@ export default function OnrampFeature() {
     }
 
     const network = isNearIntents ? "base" : selectedNetwork;
-    const url = getOnrampBuyUrl({
-      projectId: process.env.NEXT_PUBLIC_CDP_PROJECT_ID!,
-      assets: [selectedAsset],
-      addresses: {
-        [depositAddress || "0x0000000000000000000000000000000000000000"]: [
-          network,
-        ],
-      },
-      defaultAsset: selectedAsset,
-      defaultNetwork: network,
-      defaultPaymentMethod: selectedPaymentMethod,
-      fiatCurrency: selectedPaymentCurrency,
-      partnerUserId: address,
-      redirectUrl: generateIntentsUrl(),
-    });
-
-    // const url = generateOnrampURL({
-    //   asset: selectedAsset,
-    //   amount,
-    //   network,
-    //   paymentMethod: selectedPaymentMethod,
-    //   paymentCurrency: selectedPaymentCurrency,
-    //   // Onramp to the NEAR intents deposit address
-    //   address: depositAddress || "0x0000000000000000000000000000000000000000",
+    // const url = getOnrampBuyUrl({
+    //   projectId: process.env.NEXT_PUBLIC_CDP_PROJECT_ID!,
+    //   assets: [selectedAsset],
+    //   addresses: {
+    //     [depositAddress || "0x0000000000000000000000000000000000000000"]: [
+    //       network,
+    //     ],
+    //   },
+    //   defaultAsset: selectedAsset,
+    //   defaultNetwork: network,
+    //   defaultPaymentMethod: selectedPaymentMethod,
+    //   presetFiatAmount: Number(amount),
+    //   fiatCurrency: selectedPaymentCurrency,
+    //   partnerUserId: address,
     //   redirectUrl: generateIntentsUrl(),
-    //   enableGuestCheckout, // Add guest checkout option
     // });
+
+    const url = generateOnrampURL({
+      asset: selectedAsset,
+      amount,
+      network,
+      paymentMethod: selectedPaymentMethod,
+      paymentCurrency: selectedPaymentCurrency,
+      // Onramp to the NEAR intents deposit address
+      address: depositAddress || "0x0000000000000000000000000000000000000000",
+      redirectUrl: generateIntentsUrl(),
+      enableGuestCheckout, // Add guest checkout option
+    });
 
     setGeneratedUrl(url);
     setShowUrlModal(true);
@@ -694,35 +695,36 @@ export default function OnrampFeature() {
     }
 
     const network = isNearIntents ? "base" : selectedNetwork;
-    const url = getOnrampBuyUrl({
-      projectId: process.env.NEXT_PUBLIC_CDP_PROJECT_ID!,
-      assets: [selectedAsset],
-      addresses: {
-        [depositAddress || "0x0000000000000000000000000000000000000000"]: [
-          network,
-        ],
-      },
-      defaultAsset: selectedAsset,
-      defaultNetwork: network,
-      defaultPaymentMethod: selectedPaymentMethod,
-      fiatCurrency: selectedPaymentCurrency,
-      partnerUserId: address,
-      redirectUrl: generateIntentsUrl(),
-    });
+    // const url = getOnrampBuyUrl({
+    //   projectId: process.env.NEXT_PUBLIC_CDP_PROJECT_ID!,
+    //   assets: [selectedAsset],
+    //   addresses: {
+    //     [depositAddress || "0x0000000000000000000000000000000000000000"]: [
+    //       network,
+    //     ],
+    //   },
+    //   defaultAsset: selectedAsset,
+    //   defaultNetwork: network,
+    //   defaultPaymentMethod: selectedPaymentMethod,
+    //   presetFiatAmount: Number(amount),
+    //   fiatCurrency: selectedPaymentCurrency,
+    //   partnerUserId: address,
+    //   redirectUrl: generateIntentsUrl(),
+    // });
 
     // Note: This is a demo app - actual payments require ownership of
     // assets and sufficient funds
-    // const url = generateOnrampURL({
-    //   asset: selectedAsset,
-    //   amount,
-    //   network,
-    //   paymentMethod: selectedPaymentMethod,
-    //   paymentCurrency: selectedPaymentCurrency,
-    //   // Onramp to the NEAR intents deposit address
-    //   address: depositAddress || "0x0000000000000000000000000000000000000000",
-    //   redirectUrl: generateIntentsUrl(),
-    //   enableGuestCheckout, // Add guest checkout option
-    // });
+    const url = generateOnrampURL({
+      asset: selectedAsset,
+      amount,
+      network,
+      paymentMethod: selectedPaymentMethod,
+      paymentCurrency: selectedPaymentCurrency,
+      // Onramp to the NEAR intents deposit address
+      address: depositAddress || "0x0000000000000000000000000000000000000000",
+      redirectUrl: generateIntentsUrl(),
+      enableGuestCheckout, // Add guest checkout option
+    });
 
     window.open(url, "_blank");
   };

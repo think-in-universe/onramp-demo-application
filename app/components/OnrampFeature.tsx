@@ -679,6 +679,7 @@ export default function OnrampFeature() {
       paymentCurrency: selectedPaymentCurrency,
       // Onramp to the NEAR intents deposit address
       address: depositAddress || "0x0000000000000000000000000000000000000000",
+      partnerUserId: address || "0x0000000000000000000000000000000000000000",
       redirectUrl: generateIntentsUrl(),
       enableGuestCheckout, // Add guest checkout option
     });
@@ -722,6 +723,7 @@ export default function OnrampFeature() {
       paymentCurrency: selectedPaymentCurrency,
       // Onramp to the NEAR intents deposit address
       address: depositAddress || "0x0000000000000000000000000000000000000000",
+      partnerUserId: address || "0x0000000000000000000000000000000000000000",
       redirectUrl: generateIntentsUrl(),
       enableGuestCheckout, // Add guest checkout option
     });

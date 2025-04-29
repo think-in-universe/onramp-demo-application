@@ -36,13 +36,14 @@ import { assetNetworkAdapter } from "../utils/intents/adapters";
 import { SupportedChainName } from "../utils/intents/types/base";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { publishIntent } from "../services/intentService";
+import { publishIntent, waitForIntentSettlement } from "../services/intentService";
 import { queryQuoteExactOut } from "../services/quoteService";
 import { getOnrampBuyUrl } from "@coinbase/onchainkit/fund";
 import { getNEP141StorageRequired } from "../services/nep141StorageService";
 import { waitForDepositsCompletion } from "../utils/intents/poaBridge/getPendingDeposits";
 import { getTokenAccountIds } from "../utils/intents/tokenUtils";
 import { NEP141_STORAGE_TOKEN_ID } from "../utils/intents/constants/tokens";
+import SimpleModal from "./SimpleModal";
 
 // Define payment method descriptions
 const PAYMENT_METHOD_DESCRIPTIONS: Record<string, string> = {
@@ -193,6 +194,14 @@ const US_STATES = [
   { code: "DC", name: "District of Columbia" },
 ];
 
+type intentStatus =
+  | "none"
+  | "depositing"
+  | "querying"
+  | "signing"
+  | "withdrawing"
+  | "done";
+
 export default function OnrampFeature() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
@@ -216,6 +225,7 @@ export default function OnrampFeature() {
   );
   const [isNearIntents, setIsNearIntents] = useState(false);
   const [nearRecipientAddress, setNearRecipientAddress] = useState("");
+  const [intentProgress, setIntentProgress] = useState<intentStatus>("none");
 
   const searchParams = useSearchParams();
 
@@ -483,9 +493,11 @@ export default function OnrampFeature() {
 
       const withdraw = async () => {
         // wait for onramp deposit completion before start withdrawing
+        setIntentProgress("depositing");
         await waitForDepositsCompletion(address.toLowerCase() as IntentsUserId);
 
         // quote the swap amount with the exact amount out
+        setIntentProgress("querying");
         const quote = await queryQuoteExactOut(
           {
             tokenIn: tokenIn.defuseAssetId,
@@ -573,6 +585,7 @@ export default function OnrampFeature() {
         });
 
         // sign the intent message
+        setIntentProgress("signing");
         const message = JSON.stringify(intentObject);
         const signature = await signMessageAsync({
           message,
@@ -589,11 +602,12 @@ export default function OnrampFeature() {
         });
 
         // publish the intent
+        setIntentProgress("withdrawing");
         const quoteHashes =
           quoteStorage && quoteStorage.value
             ? [quote.value.quoteHashes[0], quoteStorage.value.quoteHashes[0]]
             : [quote.value.quoteHashes[0]];
-        await publishIntent(
+        const result = await publishIntent(
           {
             type: "ERC191",
             signatureData,
@@ -605,6 +619,15 @@ export default function OnrampFeature() {
           },
           quoteHashes
         );
+
+        if (result.tag === "err") {
+          throw new Error("Failed to publish intent");
+        }
+        const intentHash = result.value;
+
+        // wait for intent completion
+        await waitForIntentSettlement(new AbortController().signal, intentHash);
+        setIntentProgress("done");
       };
 
       withdraw();
@@ -1370,6 +1393,51 @@ export default function OnrampFeature() {
               onClose={() => setShowUrlModal(false)}
               onCopy={handleCopyUrl}
               onOpen={handleOpenUrl}
+            />
+          )}
+
+          {/* URL Modal */}
+          {intentProgress !== "none" && (
+            <SimpleModal
+              title="Onramp Status"
+              content={(() => {
+                let header = "";
+                let description = "";
+                const amount = searchParams.get("amount") || "";
+                const asset = searchParams.get("asset") ?? "USDC";
+                const recipient = searchParams.get("recipient") || "";
+                const explorerUrl = `https://nearblocks.io/address/${recipient}?tab=tokentxns`;
+
+                if (intentProgress === "depositing") {
+                  header = "Waiting for onramp deposit to the address...";
+                  description = depositAddress || "";
+                } else if (intentProgress === "querying") {
+                  header = `Querying ${asset} quotes from NEAR Intents...`;
+                  description = `Please wait while we query quotes for ${amount} ${asset}.`;
+                } else if (intentProgress === "signing") {
+                  header = "Signing intent message...";
+                  description = `Please sign the message in your wallet to send ${amount} ${asset} to the recipient address ${recipient}.`;
+                } else if (intentProgress === "withdrawing") {
+                  header = `${asset} is being sent to your wallet...`;
+                  description = `${amount} ${asset} will arrive in your address ${recipient} soon`;
+                } else if (intentProgress === "done") {
+                  header = `Onramp ${amount} ${asset} completed`;
+                  description = `Find the transactions in the explorer: ${explorerUrl}`;
+                }
+
+                return (
+                  <div>
+                    <p className="text-gray-700 mb-2">{header}</p>
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 overflow-hidden">
+                      <div className="text-xs text-gray-800 break-all max-h-32 overflow-y-auto">
+                        {description}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+              onClose={() => setIntentProgress("none")}
+              actions={<></>}
             />
           )}
         </div>

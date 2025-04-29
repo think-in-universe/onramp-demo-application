@@ -229,6 +229,8 @@ export default function OnrampFeature() {
   const [isNearIntents, setIsNearIntents] = useState(false);
   const [nearRecipientAddress, setNearRecipientAddress] = useState("");
   const [intentProgress, setIntentProgress] = useState<intentStatus>("none");
+  const [nearIntentAmountIn, setNearIntentAmountIn] = useState<number>(0);
+  const [nearIntentAmountOut, setNearIntentAmountOut] = useState<number>(0);
 
   const searchParams = useSearchParams();
 
@@ -488,6 +490,8 @@ export default function OnrampFeature() {
       const amountIn = BigInt(
         (Number(amount) * 10 ** tokenIn.decimals).toFixed(0)
       );
+      setNearIntentAmountIn(Number(amountIn) / 10 ** tokenIn.decimals);
+
       // TODO: amount out should be estimated from the quote
       // We need to add another function for query quote with amount in
       const amountOut = amountIn - BigInt(2);
@@ -513,6 +517,8 @@ export default function OnrampFeature() {
         if (quote.tag === "err") {
           throw new Error("No quotes found");
         }
+
+        setNearIntentAmountOut(Number(amountOut) / 10 ** tokenOut.decimals);
 
         // quote the storage token amount if needed
         const storageRequired = await getNEP141StorageRequired({
@@ -1406,7 +1412,10 @@ export default function OnrampFeature() {
               content={(() => {
                 let header = "";
                 let description = "";
-                const amount = searchParams.get("amount") || "";
+                const amountIn = nearIntentAmountIn;
+                const amountOut = nearIntentAmountOut;
+                // TODO: fee should be calculated from the quote
+                const fee = (amountIn - amountOut).toFixed(6);
                 const asset = searchParams.get("asset") ?? "USDC";
                 const recipient = searchParams.get("recipient") || "";
                 const network =
@@ -1415,18 +1424,18 @@ export default function OnrampFeature() {
 
                 if (intentProgress === "depositing") {
                   header = `Waiting for ${asset} onramp deposit to NEAR Intents ...`;
-                  description = `Please wait for deposit to complete: ${depositAddress}`;
+                  description = `Please wait for deposit to complete: ${depositAddress ?? ""}`;
                 } else if (intentProgress === "querying") {
                   header = `Querying ${asset} quotes from NEAR Intents ...`;
-                  description = `Please wait while we query quotes for ${amount} ${asset}.`;
+                  description = `Please wait while we query quotes for ${amountIn} ${asset}.`;
                 } else if (intentProgress === "signing") {
                   header = "Signing intent message ...";
-                  description = `Please sign the message in your wallet to send ${amount} ${asset} to the recipient address ${recipient} on ${network}.`;
+                  description = `Please sign the message in your wallet to send ${amountOut} ${asset} to the recipient address ${recipient} on ${network}, with fee of ${fee} ${asset}`;
                 } else if (intentProgress === "withdrawing") {
-                  header = `${amount} ${asset} is being sent to the recipient address ...`;
+                  header = `${amountOut} ${asset} is being sent to the recipient address ...`;
                   description = `${asset} will arrive in the address ${recipient} soon.`;
                 } else if (intentProgress === "done") {
-                  header = `Onramp ${amount} ${asset} completed`;
+                  header = `Onramp ${amountOut} ${asset} completed`;
                   description = "Please find the transactions in the explorer:";
                 }
 

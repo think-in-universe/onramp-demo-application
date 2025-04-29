@@ -36,7 +36,10 @@ import { assetNetworkAdapter } from "../utils/intents/adapters";
 import { SupportedChainName } from "../utils/intents/types/base";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { publishIntent, waitForIntentSettlement } from "../services/intentService";
+import {
+  publishIntent,
+  waitForIntentSettlement,
+} from "../services/intentService";
 import { queryQuoteExactOut } from "../services/quoteService";
 import { getOnrampBuyUrl } from "@coinbase/onchainkit/fund";
 import { getNEP141StorageRequired } from "../services/nep141StorageService";
@@ -1409,29 +1412,41 @@ export default function OnrampFeature() {
                 const explorerUrl = `https://nearblocks.io/address/${recipient}?tab=tokentxns`;
 
                 if (intentProgress === "depositing") {
-                  header = "Waiting for onramp deposit to the address...";
-                  description = depositAddress || "";
+                  header = `Waiting for ${asset} onramp deposit to NEAR Intents ...`;
+                  description = `Please wait for deposit to complete: ${depositAddress}`;
                 } else if (intentProgress === "querying") {
-                  header = `Querying ${asset} quotes from NEAR Intents...`;
+                  header = `Querying ${asset} quotes from NEAR Intents ...`;
                   description = `Please wait while we query quotes for ${amount} ${asset}.`;
                 } else if (intentProgress === "signing") {
-                  header = "Signing intent message...";
+                  header = "Signing intent message ...";
                   description = `Please sign the message in your wallet to send ${amount} ${asset} to the recipient address ${recipient}.`;
                 } else if (intentProgress === "withdrawing") {
-                  header = `${asset} is being sent to your wallet...`;
-                  description = `${amount} ${asset} will arrive in your address ${recipient} soon`;
+                  header = `${asset} is being sent to the recipient address ...`;
+                  description = `${amount} ${asset} will arrive in the recipient address ${recipient} soon.`;
                 } else if (intentProgress === "done") {
                   header = `Onramp ${amount} ${asset} completed`;
-                  description = `Find the transactions in the explorer: ${explorerUrl}`;
+                  description = "Please find the transactions in the explorer:";
                 }
 
                 return (
                   <div>
                     <p className="text-gray-700 mb-2">{header}</p>
                     <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 overflow-hidden">
-                      <div className="text-xs text-gray-800 break-all max-h-32 overflow-y-auto">
+                      <div className="text-sm text-gray-800 break-all max-h-32 overflow-y-auto">
                         {description}
                       </div>
+                      {intentProgress === "done" && (
+                        <div className="mt-2 text-sm">
+                          <a
+                            className="text-blue-600 hover:text-blue-700"
+                            href={explorerUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {explorerUrl}
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

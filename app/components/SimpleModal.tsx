@@ -6,7 +6,7 @@ import React from "react";
 interface SimpleModalProps {
   title: string;
   content: React.ReactNode;
-  canClose: boolean;
+  canClose?: boolean;
   onClose: () => void;
   actions: React.ReactNode;
 }

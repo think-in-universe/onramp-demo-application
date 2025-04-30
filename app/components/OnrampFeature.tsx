@@ -1462,6 +1462,7 @@ export default function OnrampFeature() {
                   </div>
                 );
               })()}
+              canClose={intentProgress === "done"}
               onClose={() => setIntentProgress("none")}
               actions={<></>}
             />

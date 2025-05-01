@@ -630,7 +630,7 @@ export default function OnrampFeature() {
         );
 
         if (result.tag === "err") {
-          throw new Error("Failed to publish intent");
+          throw new Error("Failed to publish intent: " + result.value?.reason);
         }
         const intentHash = result.value;
 
@@ -760,7 +760,8 @@ export default function OnrampFeature() {
       enableGuestCheckout, // Add guest checkout option
     });
 
-    window.open(url, "_blank");
+    // proceed to coinbase onramp in the current window
+    window.open(url, "_self");
   };
 
   const handleCopyUrl = () => {
@@ -769,7 +770,8 @@ export default function OnrampFeature() {
   };
 
   const handleOpenUrl = () => {
-    window.open(generatedUrl, "_blank");
+    // proceed to coinbase onramp in the current window
+    window.open(generatedUrl, "_self");
   };
 
   const sendTransaction = async (

@@ -2,7 +2,7 @@ import {
   type BaseTokenInfo,
   type UnifiedTokenInfo,
   isBaseToken,
-} from "@defuse-protocol/defuse-sdk";
+} from "near-intents-sdk";
 import { useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 

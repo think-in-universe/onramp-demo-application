@@ -1,7 +1,4 @@
-import type {
-  BaseTokenInfo,
-  UnifiedTokenInfo,
-} from "@defuse-protocol/defuse-sdk";
+import type { BaseTokenInfo, UnifiedTokenInfo } from "near-intents-sdk";
 
 import { useFlatTokenList } from "./useFlatTokenList";
 import { useSearchParams } from "next/navigation";

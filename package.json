@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@coinbase/onchainkit": "latest",
-    "@defuse-protocol/defuse-sdk": "^1.0.0-beta.113",
+    "near-intents-sdk": "^1.0.0-beta.126",
     "@nextui-org/react": "^2.6.11",
     "@privy-io/react-auth": "^2.6.2",
     "@react-types/shared": "^3.27.0",

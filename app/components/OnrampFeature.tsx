@@ -19,33 +19,31 @@ import GeneratedLinkModal from "./GeneratedLinkModal";
 import { fetchCryptoPrices } from "../utils/priceUtils";
 import { WalletDefault } from "@coinbase/onchainkit/wallet";
 import {
+  assetNetworkAdapter,
   createWithdrawIntentMessage,
   DepositWidget,
+  generateDepositAddress,
+  getNEP141StorageRequired,
+  getTokenAccountIds,
   IntentsUserId,
   isBaseToken,
+  NEP141_STORAGE_TOKEN_ID,
+  publishIntent,
+  queryQuoteExactOut,
+  SupportedChainName,
   SwapWidget,
+  waitForDepositsCompletion,
+  waitForIntentSettlement,
   WithdrawWidget,
-} from "@defuse-protocol/defuse-sdk";
+} from "near-intents-sdk";
 import { LIST_TOKENS } from "../utils/tokens";
 import { useTokenList } from "../hooks/useTokenList";
 import { renderAppLink } from "../utils/renderAppLink";
 import { useEVMWalletActions } from "../hooks/useEVMWalletActions";
 import { parseErc6492Signature, isErc6492Signature, verifyMessage } from "viem";
-import { generateDepositAddress } from "../services/depositService";
-import { assetNetworkAdapter } from "../utils/intents/adapters";
-import { SupportedChainName } from "../utils/intents/types/base";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import {
-  publishIntent,
-  waitForIntentSettlement,
-} from "../services/intentService";
-import { queryQuoteExactOut } from "../services/quoteService";
 import { getOnrampBuyUrl } from "@coinbase/onchainkit/fund";
-import { getNEP141StorageRequired } from "../services/nep141StorageService";
-import { waitForDepositsCompletion } from "../utils/intents/poaBridge/getPendingDeposits";
-import { getTokenAccountIds } from "../utils/intents/tokenUtils";
-import { NEP141_STORAGE_TOKEN_ID } from "../utils/intents/constants/tokens";
 import SimpleModal from "./SimpleModal";
 
 // Define payment method descriptions

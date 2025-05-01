@@ -29,6 +29,7 @@ import {
   isBaseToken,
   NEP141_STORAGE_TOKEN_ID,
   publishIntent,
+  queryQuote,
   queryQuoteExactOut,
   SupportedChainName,
   SwapWidget,
@@ -490,10 +491,6 @@ export default function OnrampFeature() {
       );
       setNearIntentAmountIn(Number(amountIn) / 10 ** tokenIn.decimals);
 
-      // TODO: amount out should be estimated from the quote
-      // We need to add another function for query quote with amount in
-      const amountOut = amountIn - BigInt(2);
-
       const referral = "coinbase-intent.near"; // "near-intents.intents-referral.near"
 
       const withdraw = async () => {
@@ -503,19 +500,23 @@ export default function OnrampFeature() {
 
         // quote the swap amount with the exact amount out
         setIntentProgress("querying");
-        const quote = await queryQuoteExactOut(
-          {
-            tokenIn: tokenIn.defuseAssetId,
-            tokenOut: tokenOut.defuseAssetId,
-            exactAmountOut: amountOut,
-            minDeadlineMs: 60 * 1000, // 1 minute
+        const quote = await queryQuote({
+          tokensIn: [tokenIn],
+          tokenOut: tokenOut,
+          amountIn: {
+            amount: amountIn,
+            decimals: tokenIn.decimals,
           },
-          { logBalanceSufficient: true }
-        );
+          balances: {
+            [tokenIn.defuseAssetId]: amountIn,
+          },
+          waitMs: 2 * 1000, // 2 seconds
+        });
         if (quote.tag === "err") {
           throw new Error("No quotes found");
         }
 
+        const amountOut = quote.value.tokenDeltas[1][1];
         setNearIntentAmountOut(Number(amountOut) / 10 ** tokenOut.decimals);
 
         // quote the storage token amount if needed

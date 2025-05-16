@@ -1,7 +1,7 @@
 /**
  * Utility functions for Coinbase Onramp and Offramp URL generation
  */
-import { getOnrampBuyUrl } from '@coinbase/onchainkit/fund';
+import { getOnrampBuyUrl } from "@coinbase/onchainkit/fund";
 
 interface OnrampURLParams {
   asset: string;
@@ -10,6 +10,7 @@ interface OnrampURLParams {
   paymentMethod: string;
   paymentCurrency?: string;
   address: string;
+  partnerUserId: string;
   redirectUrl: string;
   sessionId?: string;
   enableGuestCheckout?: boolean;
@@ -26,7 +27,7 @@ interface OfframpURLParams {
 }
 
 // Coinbase Developer Platform Project ID
-const CDP_PROJECT_ID = 'a353ad87-5af2-4bc7-af5b-884e6aabf088';
+const CDP_PROJECT_ID = process.env.NEXT_PUBLIC_CDP_PROJECT_ID!;
 
 /**
  * Generates a Coinbase Onramp URL with the provided parameters
@@ -39,6 +40,7 @@ export function generateOnrampURL(params: OnrampURLParams): string {
     paymentMethod,
     paymentCurrency,
     address,
+    partnerUserId,
     redirectUrl,
     sessionId,
     enableGuestCheckout,
@@ -61,7 +63,9 @@ export function generateOnrampURL(params: OnrampURLParams): string {
 
   // Format addresses as a JSON string: {"address":["network"]}
   const addressesObj: Record<string, string[]> = {};
-  addressesObj[address || "0x0000000000000000000000000000000000000000"] = [network];
+  addressesObj[address || "0x0000000000000000000000000000000000000000"] = [
+    network,
+  ];
   queryParams.append("addresses", JSON.stringify(addressesObj));
 
   // Optional parameters
@@ -89,14 +93,18 @@ export function generateOnrampURL(params: OnrampURLParams): string {
   }
 
   // Add partner user ID (limited to 49 chars)
-  queryParams.append("partnerUserId", address.substring(0, 49));
+  queryParams.append("partnerUserId", partnerUserId.substring(0, 49));
 
   // Add redirect URL
   if (redirectUrl) {
     queryParams.append("redirectUrl", redirectUrl);
   } else {
-    // Note: This is a demo app - actual payments require ownership of assets and sufficient funds
-    queryParams.append("redirectUrl", "https://coinbase-on-off-ramp.vercel.app/onramp");
+    // Note: This is a demo app - actual payments require ownership of
+    // assets and sufficient funds
+    queryParams.append(
+      "redirectUrl",
+      "https://coinbase-on-off-ramp.vercel.app/onramp"
+    );
   }
 
   // Add session token if provided
@@ -118,7 +126,8 @@ export function generateOnrampURL(params: OnrampURLParams): string {
  */
 export function generateOfframpURL(params: OfframpURLParams): string {
   try {
-    const { asset, amount, network, cashoutMethod, address, redirectUrl } = params;
+    const { asset, amount, network, cashoutMethod, address, redirectUrl } =
+      params;
 
     // Base URL
     const baseUrl = "https://pay.coinbase.com/v3/sell/input";
@@ -130,13 +139,16 @@ export function generateOfframpURL(params: OfframpURLParams): string {
     queryParams.append("appId", CDP_PROJECT_ID);
 
     // Add partner user ID (must be unique and less than 50 chars)
-    const userId = address ? address.substring(0, 49) : "anonymous-" + Date.now();
+    const userId = address
+      ? address.substring(0, 49)
+      : "anonymous-" + Date.now();
     queryParams.append("partnerUserId", userId);
 
     // Add addresses parameter - this is the most critical part
     // Format: {"address":["network1","network2"]}
     const addressesObj: Record<string, string[]> = {};
-    const validAddress = address || "0x4315d134aCd3221a02dD380ADE3aF39Ce219037c";
+    const validAddress =
+      address || "0x4315d134aCd3221a02dD380ADE3aF39Ce219037c";
     addressesObj[validAddress] = [network || "ethereum"];
     queryParams.append("addresses", JSON.stringify(addressesObj));
 
@@ -146,7 +158,8 @@ export function generateOfframpURL(params: OfframpURLParams): string {
     // Add optional parameters if provided
     if (asset) queryParams.append("defaultAsset", asset);
     if (network) queryParams.append("defaultNetwork", network);
-    if (cashoutMethod) queryParams.append("defaultCashoutMethod", cashoutMethod);
+    if (cashoutMethod)
+      queryParams.append("defaultCashoutMethod", cashoutMethod);
 
     // Add amount parameter to pre-fill the amount field
     // For offramp, we should only pass the fiat amount (USD)
@@ -159,7 +172,10 @@ export function generateOfframpURL(params: OfframpURLParams): string {
 
     // Add redirect URL
     // Note: This is a demo app - actual payments require ownership of assets and sufficient funds
-    queryParams.append("redirectUrl", redirectUrl || "https://coinbase-on-off-ramp.vercel.app/offramp");
+    queryParams.append(
+      "redirectUrl",
+      redirectUrl || "https://coinbase-on-off-ramp.vercel.app/offramp"
+    );
 
     // Return the complete URL
     return `${baseUrl}?${queryParams.toString()}`;

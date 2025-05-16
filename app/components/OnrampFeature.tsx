@@ -1,7 +1,9 @@
+/* eslint-disable max-len */
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { useAccount, useConnect } from "wagmi";
+import { useAccount, useConnect, useSignMessage } from "wagmi";
+import type { SendTransactionParameters } from "@wagmi/core";
 import { generateOnrampURL } from "../utils/rampUtils";
 import {
   fetchBuyConfig,
@@ -16,6 +18,34 @@ import {
 import GeneratedLinkModal from "./GeneratedLinkModal";
 import { fetchCryptoPrices } from "../utils/priceUtils";
 import { WalletDefault } from "@coinbase/onchainkit/wallet";
+import {
+  assetNetworkAdapter,
+  createWithdrawIntentMessage,
+  DepositWidget,
+  generateDepositAddress,
+  getNEP141StorageRequired,
+  getTokenAccountIds,
+  IntentsUserId,
+  isBaseToken,
+  NEP141_STORAGE_TOKEN_ID,
+  publishIntent,
+  queryQuote,
+  queryQuoteExactOut,
+  SupportedChainName,
+  SwapWidget,
+  waitForDepositsCompletion,
+  waitForIntentSettlement,
+  WithdrawWidget,
+} from "near-intents-sdk";
+import { LIST_TOKENS } from "../utils/tokens";
+import { useTokenList } from "../hooks/useTokenList";
+import { renderAppLink } from "../utils/renderAppLink";
+import { useEVMWalletActions } from "../hooks/useEVMWalletActions";
+import { parseErc6492Signature, isErc6492Signature, verifyMessage } from "viem";
+import Image from "next/image";
+import { useSearchParams } from "next/navigation";
+import { getOnrampBuyUrl } from "@coinbase/onchainkit/fund";
+import SimpleModal from "./SimpleModal";
 
 // Define payment method descriptions
 const PAYMENT_METHOD_DESCRIPTIONS: Record<string, string> = {
@@ -85,6 +115,7 @@ const assetNetworkMap: Record<string, string[]> = {
     "unichain",
     "aptos",
     "bnb-chain",
+    "near",
   ],
   BTC: ["bitcoin", "bitcoin-lightning"],
   SOL: ["solana"],
@@ -165,13 +196,22 @@ const US_STATES = [
   { code: "DC", name: "District of Columbia" },
 ];
 
+type intentStatus =
+  | "none"
+  | "depositing"
+  | "querying"
+  | "signing"
+  | "withdrawing"
+  | "done";
+
 export default function OnrampFeature() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
+  const { signMessageAsync } = useSignMessage();
   const [activeTab, setActiveTab] = useState<"api" | "url">("api");
   const [selectedAsset, setSelectedAsset] = useState("USDC");
   const [amount, setAmount] = useState("10");
-  const [selectedNetwork, setSelectedNetwork] = useState("base");
+  const [selectedNetwork, setSelectedNetwork] = useState("near");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [generatedUrl, setGeneratedUrl] = useState("");
   const [showUrlModal, setShowUrlModal] = useState(false);
@@ -181,6 +221,19 @@ export default function OnrampFeature() {
   const [selectedState, setSelectedState] = useState("");
   const [cryptoPrices, setCryptoPrices] = useState<Record<string, number>>({});
   const [isLoadingPrices, setIsLoadingPrices] = useState(false);
+  const { sendTransactions } = useEVMWalletActions();
+  const [depositAddress, setDepositAddress] = useState<string | undefined>(
+    undefined
+  );
+  const [isNearIntents, setIsNearIntents] = useState(false);
+  const [nearRecipientAddress, setNearRecipientAddress] = useState("");
+  const [intentProgress, setIntentProgress] = useState<intentStatus>("none");
+  const [nearIntentAmountIn, setNearIntentAmountIn] = useState<number>(0);
+  const [nearIntentAmountOut, setNearIntentAmountOut] = useState<number>(0);
+
+  const searchParams = useSearchParams();
+
+  const tokenList = useTokenList(LIST_TOKENS);
 
   // Define supported payment methods
   const paymentMethods = [
@@ -345,6 +398,245 @@ export default function OnrampFeature() {
     return () => clearInterval(intervalId);
   }, []);
 
+  // Fetch deposit address on component mount
+  useEffect(() => {
+    if (!address || !selectedNetwork) return;
+
+    const fetchDepositAddress = async () => {
+      let network = selectedNetwork;
+      if (isNearIntents) {
+        network = "base";
+      }
+
+      const intentsUserId = address.toLowerCase() as IntentsUserId;
+      const chain = assetNetworkAdapter[network as SupportedChainName];
+
+      console.log("fetching deposit address for", {
+        address,
+        intentsUserId,
+        network,
+        chain,
+      });
+
+      const depositAddress = await generateDepositAddress(intentsUserId, chain);
+      setDepositAddress(depositAddress);
+    };
+
+    fetchDepositAddress();
+  }, [address, selectedNetwork, isNearIntents]);
+
+  useEffect(() => {
+    // NEAR USDC onramp is not supported yet, so we deposit to
+    // NEAR Intents deposit address, and withdraw USDC on NEAR
+    if (selectedNetwork === "near" && selectedAsset === "USDC") {
+      setIsNearIntents(true);
+    } else {
+      setIsNearIntents(false);
+    }
+  }, [selectedNetwork, selectedAsset]);
+
+  useEffect(() => {
+    const type = searchParams.get("type");
+    const action = searchParams.get("action");
+    const network = searchParams.get("network");
+    const asset = searchParams.get("asset");
+    const amount = searchParams.get("amount");
+    const recipient = searchParams.get("recipient");
+
+    console.log("search params", {
+      type,
+      action,
+      network,
+      asset,
+      amount,
+      address,
+      recipient,
+      signMessageAsync,
+    });
+
+    if (
+      type === "intents" &&
+      action === "withdraw" &&
+      network === "near" &&
+      asset === "USDC" &&
+      address &&
+      amount &&
+      recipient &&
+      signMessageAsync &&
+      tokenList
+    ) {
+      const flattenedTokenList = tokenList.flatMap((token) =>
+        isBaseToken(token) ? [token] : token.groupedTokens
+      );
+
+      // find token info from token list
+      const tokenIn = flattenedTokenList.find(
+        (token) => token.symbol === "USDC" && token.chainName === "base"
+      );
+      const tokenOut = flattenedTokenList.find(
+        (token) => token.symbol === asset && token.chainName === network
+      );
+
+      if (!tokenIn || !tokenOut) {
+        throw new Error("Token not found");
+      }
+
+      const amountIn = BigInt(
+        (Number(amount) * 10 ** tokenIn.decimals).toFixed(0)
+      );
+      setNearIntentAmountIn(Number(amountIn) / 10 ** tokenIn.decimals);
+
+      const referral = "coinbase-intent.near"; // "near-intents.intents-referral.near"
+
+      const withdraw = async () => {
+        // wait for onramp deposit completion before start withdrawing
+        setIntentProgress("depositing");
+        await waitForDepositsCompletion(address.toLowerCase() as IntentsUserId);
+
+        // quote the swap amount with the exact amount out
+        setIntentProgress("querying");
+        const quote = await queryQuote({
+          tokensIn: [tokenIn],
+          tokenOut: tokenOut,
+          amountIn: {
+            amount: amountIn,
+            decimals: tokenIn.decimals,
+          },
+          balances: {
+            [tokenIn.defuseAssetId]: amountIn,
+          },
+          waitMs: 2 * 1000, // 2 seconds
+        });
+        if (quote.tag === "err") {
+          throw new Error("No quotes found");
+        }
+
+        const amountOut = quote.value.tokenDeltas[1][1];
+        setNearIntentAmountOut(Number(amountOut) / 10 ** tokenOut.decimals);
+
+        // quote the storage token amount if needed
+        const storageRequired = await getNEP141StorageRequired({
+          token: tokenOut,
+          userAccountId: recipient,
+        });
+
+        console.log("storage required", storageRequired);
+
+        if (storageRequired.tag === "err") {
+          throw new Error("Error fetching storage required");
+        }
+        const storageDeposit = storageRequired.value;
+        const needsStorageDeposit = storageDeposit > BigInt(0);
+        const quoteStorage = needsStorageDeposit
+          ? await queryQuoteExactOut(
+              {
+                tokenIn: tokenOut.defuseAssetId,
+                tokenOut: NEP141_STORAGE_TOKEN_ID,
+                exactAmountOut: storageDeposit,
+                minDeadlineMs: 10 * 60 * 1000, // 10 minutes
+              },
+              { logBalanceSufficient: true }
+            )
+          : null;
+        if (quoteStorage && quoteStorage.tag === "err") {
+          throw new Error("No quotes found");
+        }
+
+        // calculate the storage cost and remaining amount
+        const storageCost =
+          quoteStorage && quoteStorage.value
+            ? -quoteStorage.value.tokenDeltas[0][1]
+            : BigInt(0);
+        const remainingAmountOut = amountOut - storageCost;
+
+        // create the withdraw intent message
+        const intentMessage = createWithdrawIntentMessage(
+          {
+            type: "to_near",
+            amount: remainingAmountOut,
+            tokenAccountId: getTokenAccountIds([tokenOut])[0],
+            receiverId: recipient,
+            storageDeposit,
+          },
+          {
+            signerId: address.toLowerCase() as IntentsUserId,
+          }
+        );
+
+        console.log("generated withdraw intent message", intentMessage);
+
+        const intentObject = JSON.parse(intentMessage.ERC191.message);
+        // add storage cost to the intent if needed
+        if (Number(storageCost) > 0) {
+          intentObject.intents.unshift({
+            intent: "token_diff",
+            diff: {
+              [tokenOut.defuseAssetId]: "-" + storageCost.toString(),
+              [NEP141_STORAGE_TOKEN_ID]: storageDeposit.toString(),
+            },
+            referral,
+          });
+        }
+        // add the swap intent
+        intentObject.intents.unshift({
+          intent: "token_diff",
+          diff: {
+            [tokenIn.defuseAssetId]: "-" + amountIn.toString(),
+            [tokenOut.defuseAssetId]: amountOut.toString(),
+          },
+          referral,
+        });
+
+        // sign the intent message
+        setIntentProgress("signing");
+        const message = JSON.stringify(intentObject);
+        const signature = await signMessageAsync({
+          message,
+        });
+        const signatureData = parseErc6492Signature(signature).signature;
+
+        console.log("signed withdrawal message", {
+          message,
+          signature,
+          signatureData,
+          erc6492: isErc6492Signature(signature),
+          parsed: parseErc6492Signature(signature),
+          equal: signatureData === signature,
+        });
+
+        // publish the intent
+        setIntentProgress("withdrawing");
+        const quoteHashes =
+          quoteStorage && quoteStorage.value
+            ? [quote.value.quoteHashes[0], quoteStorage.value.quoteHashes[0]]
+            : [quote.value.quoteHashes[0]];
+        const result = await publishIntent(
+          {
+            type: "ERC191",
+            signatureData,
+            signedData: { message },
+          },
+          {
+            userAddress: address,
+            userChainType: "evm",
+          },
+          quoteHashes
+        );
+
+        if (result.tag === "err") {
+          throw new Error("Failed to publish intent: " + result.value?.reason);
+        }
+        const intentHash = result.value;
+
+        // wait for intent completion
+        await waitForIntentSettlement(new AbortController().signal, intentHash);
+        setIntentProgress("done");
+      };
+
+      withdraw();
+    }
+  }, [searchParams, address, signMessageAsync]);
+
   // Handle asset change
   const handleAssetChange = (assetCode: string) => {
     setSelectedAsset(assetCode);
@@ -359,6 +651,27 @@ export default function OnrampFeature() {
     }
   };
 
+  const generateIntentsUrl = () => {
+    // TODO: support more networks besides NEAR
+    const type = "intents";
+    const action = "withdraw";
+    const network = selectedNetwork;
+    const asset = selectedAsset;
+    const recipient = nearRecipientAddress;
+
+    const url = new URL(window.location.origin + "/onramp");
+    url.searchParams.set("type", type);
+    url.searchParams.set("action", action);
+    url.searchParams.set("network", network);
+    url.searchParams.set("asset", asset);
+    url.searchParams.set("amount", amount);
+    url.searchParams.set("recipient", recipient);
+
+    console.log("generated intents url", url.toString());
+
+    return url.toString();
+  };
+
   // Generate one-time URL
   const handleGenerateUrl = () => {
     if (!address && activeTab === "url") {
@@ -366,14 +679,18 @@ export default function OnrampFeature() {
       return;
     }
 
+    const network = isNearIntents ? "base" : selectedNetwork;
+
     const url = generateOnrampURL({
       asset: selectedAsset,
       amount,
-      network: selectedNetwork,
+      network,
       paymentMethod: selectedPaymentMethod,
       paymentCurrency: selectedPaymentCurrency,
-      address: address || "0x0000000000000000000000000000000000000000",
-      redirectUrl: window.location.origin + "/onramp",
+      // Onramp to the NEAR intents deposit address
+      address: depositAddress || "0x0000000000000000000000000000000000000000",
+      partnerUserId: address || "0x0000000000000000000000000000000000000000",
+      redirectUrl: generateIntentsUrl(),
       enableGuestCheckout, // Add guest checkout option
     });
 
@@ -388,19 +705,25 @@ export default function OnrampFeature() {
       return;
     }
 
-    // Note: This is a demo app - actual payments require ownership of assets and sufficient funds
+    const network = isNearIntents ? "base" : selectedNetwork;
+
+    // Note: This is a demo app - actual payments require ownership of
+    // assets and sufficient funds
     const url = generateOnrampURL({
       asset: selectedAsset,
       amount,
-      network: selectedNetwork,
+      network,
       paymentMethod: selectedPaymentMethod,
       paymentCurrency: selectedPaymentCurrency,
-      address: address || "0x0000000000000000000000000000000000000000",
-      redirectUrl: window.location.origin + "/onramp",
+      // Onramp to the NEAR intents deposit address
+      address: depositAddress || "0x0000000000000000000000000000000000000000",
+      partnerUserId: address || "0x0000000000000000000000000000000000000000",
+      redirectUrl: generateIntentsUrl(),
       enableGuestCheckout, // Add guest checkout option
     });
 
-    window.open(url, "_blank");
+    // proceed to coinbase onramp in the current window
+    window.open(url, "_self");
   };
 
   const handleCopyUrl = () => {
@@ -409,7 +732,18 @@ export default function OnrampFeature() {
   };
 
   const handleOpenUrl = () => {
-    window.open(generatedUrl, "_blank");
+    // proceed to coinbase onramp in the current window
+    window.open(generatedUrl, "_self");
+  };
+
+  const sendTransaction = async (
+    tx: SendTransactionParameters
+  ): Promise<string> => {
+    const result = await sendTransactions(tx as SendTransactionParameters);
+    if (result === undefined) {
+      throw new Error(`Transaction failed for EVM`);
+    }
+    return result;
   };
 
   return (
@@ -636,6 +970,22 @@ export default function OnrampFeature() {
                 </div>
               </div>
 
+              {/* NEAR Intents Recipient Address */}
+              {isNearIntents && (
+                <div className="mb-6">
+                  <label className="block text-gray-700 mb-2 font-medium">
+                    NEAR Recipient Address (e.g. alice.near)
+                  </label>
+                  <input
+                    type="text"
+                    value={nearRecipientAddress}
+                    onChange={(e) => setNearRecipientAddress(e.target.value)}
+                    className="block w-full bg-white border border-gray-300 rounded-lg py-3 pl-4 pr-4 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter recipient address"
+                  />
+                </div>
+              )}
+
               {/* Payment Currency Selection */}
               <div className="mb-6">
                 <label className="block text-gray-700 mb-2 font-medium">
@@ -723,11 +1073,32 @@ export default function OnrampFeature() {
                 </p>
               </div>
 
+              {/* Deposit Address */}
+              <div className="mb-6">
+                <div className="flex items-center mb-2">
+                  <span className="mr-2">
+                    <Image
+                      src="/near-intents.png"
+                      alt="NEAR Intents Logo"
+                      width={16}
+                      height={16}
+                      className="rounded-md"
+                    />
+                  </span>
+                  <label className="text-gray-700 font-medium">
+                    NEAR Intents Deposit Address
+                  </label>
+                </div>
+                <p className="text-sm text-gray-500">{depositAddress}</p>
+              </div>
+
               {/* Action Button */}
               {activeTab === "api" ? (
                 <button
                   onClick={handleOnramp}
-                  disabled={!isConnected}
+                  disabled={
+                    !isConnected || (isNearIntents && !nearRecipientAddress)
+                  }
                   className={`w-full py-3 px-4 rounded-lg font-medium transition-all ${
                     isConnected
                       ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg"
@@ -738,6 +1109,7 @@ export default function OnrampFeature() {
                 </button>
               ) : (
                 <button
+                  disabled={isNearIntents && !nearRecipientAddress}
                   onClick={handleGenerateUrl}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-all shadow-md hover:shadow-lg"
                 >
@@ -792,7 +1164,7 @@ export default function OnrampFeature() {
                     </div>
                     <div className="mb-4">
                       <div className="text-sm text-gray-500 mb-1">
-                        You'll Pay
+                        {"You'll Pay"}
                       </div>
                       <div className="text-2xl font-bold text-gray-800">
                         {getCurrencySymbol(selectedPaymentCurrency)}
@@ -816,7 +1188,7 @@ export default function OnrampFeature() {
                     </div>
                     <div className="mb-4">
                       <div className="text-sm text-gray-500 mb-1">
-                        You'll Receive
+                        {"You'll Receive"}
                       </div>
                       <div className="flex items-center text-gray-800">
                         <span className="mr-1">
@@ -881,6 +1253,69 @@ export default function OnrampFeature() {
               onClose={() => setShowUrlModal(false)}
               onCopy={handleCopyUrl}
               onOpen={handleOpenUrl}
+            />
+          )}
+
+          {/* URL Modal */}
+          {intentProgress !== "none" && (
+            <SimpleModal
+              title={`Onramp ${searchParams.get("asset") ?? "USDC"}`}
+              content={(() => {
+                let header = "";
+                let description = "";
+                const amountIn = nearIntentAmountIn;
+                const amountOut = nearIntentAmountOut;
+                // TODO: fee should be calculated from the quote
+                const fee = (amountIn - amountOut).toFixed(6);
+                const asset = searchParams.get("asset") ?? "USDC";
+                const recipient = searchParams.get("recipient") || "";
+                const network =
+                  searchParams.get("network")?.toUpperCase() ?? "NEAR";
+                const explorerUrl = `https://nearblocks.io/address/${recipient}?tab=tokentxns`;
+
+                if (intentProgress === "depositing") {
+                  header = `Waiting for ${asset} onramp deposit to NEAR Intents ...`;
+                  description = `Please wait for deposit to complete: ${depositAddress ?? ""}`;
+                } else if (intentProgress === "querying") {
+                  header = `Querying ${asset} quotes from NEAR Intents ...`;
+                  description = `Please wait while we query quotes for ${amountIn} ${asset}.`;
+                } else if (intentProgress === "signing") {
+                  header = "Signing intent message ...";
+                  description = `Please sign the message in your wallet to send ${amountOut} ${asset} to the recipient address ${recipient} on ${network}, with fee of ${fee} ${asset}`;
+                } else if (intentProgress === "withdrawing") {
+                  header = `${amountOut} ${asset} is being sent to the recipient address ...`;
+                  description = `${asset} will arrive in the address ${recipient} soon.`;
+                } else if (intentProgress === "done") {
+                  header = `Onramp ${amountOut} ${asset} completed`;
+                  description = "Please find the transactions in the explorer:";
+                }
+
+                return (
+                  <div>
+                    <p className="text-gray-700 mb-2">{header}</p>
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 overflow-hidden">
+                      <div className="text-sm text-gray-800 break-all max-h-32 overflow-y-auto">
+                        {description}
+                      </div>
+                      {intentProgress === "done" && (
+                        <div className="mt-2 text-sm">
+                          <a
+                            className="text-blue-600 hover:text-blue-700"
+                            href={explorerUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {explorerUrl}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+              canClose={intentProgress === "done"}
+              onClose={() => setIntentProgress("none")}
+              actions={<></>}
             />
           )}
         </div>

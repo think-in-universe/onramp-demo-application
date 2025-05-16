@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAccount, useConnect, useSignMessage } from "wagmi";
+import { verifyMessage, http, createConfig } from "@wagmi/core";
 import { useCoinbaseRampTransaction } from "../contexts/CoinbaseRampTransactionContext";
 import { setSession } from "../queries";
 import { SiweMessage } from "siwe";
@@ -13,6 +14,15 @@ import {
 } from "@coinbase/onchainkit/wallet";
 import { Address, Avatar, Name, Identity } from "@coinbase/onchainkit/identity";
 import { color } from "@coinbase/onchainkit/theme";
+
+// import { base, mainnet } from "@wagmi/core/chains";
+
+// export const config = createConfig({
+//   chains: [mainnet],
+//   transports: {
+//     [mainnet.id]: http(),
+//   },
+// });
 
 interface IWalletConnectorProps {
   hideAddress?: boolean;
@@ -83,9 +93,22 @@ export const WalletConnector = ({
       });
 
       // Sign the message
+      const _message = message.prepareMessage();
       const signature = await signMessageAsync({
-        message: message.prepareMessage(),
+        message: _message,
       });
+
+      // console.log("signed message", {
+      //   message: _message,
+      //   signature,
+      // });
+
+      // const result = await verifyMessage(config, {
+      //   address: address as `0x${string}`,
+      //   message: _message,
+      //   signature,
+      // });
+      // console.log("verifyMessage result", result);
 
       // Mock session setup
       await setSession({

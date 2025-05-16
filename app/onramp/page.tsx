@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { Suspense } from "react";
 import Link from "next/link";
 import { Header } from "../components/Header";
 import OnrampFeature from "../components/OnrampFeature";
@@ -56,7 +56,9 @@ export default function OnrampPage() {
         </section>
 
         {/* Main content */}
-        <OnrampFeature />
+        <Suspense>
+          <OnrampFeature />
+        </Suspense>
       </main>
     </div>
   );

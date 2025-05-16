@@ -208,7 +208,7 @@ export default function OnrampFeature() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { signMessageAsync } = useSignMessage();
-  const [activeTab, setActiveTab] = useState<"api" | "url" | "intents">("api");
+  const [activeTab, setActiveTab] = useState<"api" | "url">("api");
   const [selectedAsset, setSelectedAsset] = useState("USDC");
   const [amount, setAmount] = useState("10");
   const [selectedNetwork, setSelectedNetwork] = useState("near");
@@ -232,11 +232,6 @@ export default function OnrampFeature() {
   const [nearIntentAmountOut, setNearIntentAmountOut] = useState<number>(0);
 
   const searchParams = useSearchParams();
-
-  // const [signature, setSignature] = useState<Hex | undefined>(undefined);
-  // const { signTypedData } = useSignTypedData({
-  //   mutation: { onSuccess: (sig) => setSignature(sig) },
-  // });
 
   const tokenList = useTokenList(LIST_TOKENS);
 
@@ -685,22 +680,6 @@ export default function OnrampFeature() {
     }
 
     const network = isNearIntents ? "base" : selectedNetwork;
-    // const url = getOnrampBuyUrl({
-    //   projectId: process.env.NEXT_PUBLIC_CDP_PROJECT_ID!,
-    //   assets: [selectedAsset],
-    //   addresses: {
-    //     [depositAddress || "0x0000000000000000000000000000000000000000"]: [
-    //       network,
-    //     ],
-    //   },
-    //   defaultAsset: selectedAsset,
-    //   defaultNetwork: network,
-    //   defaultPaymentMethod: selectedPaymentMethod,
-    //   presetFiatAmount: Number(amount),
-    //   fiatCurrency: selectedPaymentCurrency,
-    //   partnerUserId: address,
-    //   redirectUrl: generateIntentsUrl(),
-    // });
 
     const url = generateOnrampURL({
       asset: selectedAsset,
@@ -727,22 +706,6 @@ export default function OnrampFeature() {
     }
 
     const network = isNearIntents ? "base" : selectedNetwork;
-    // const url = getOnrampBuyUrl({
-    //   projectId: process.env.NEXT_PUBLIC_CDP_PROJECT_ID!,
-    //   assets: [selectedAsset],
-    //   addresses: {
-    //     [depositAddress || "0x0000000000000000000000000000000000000000"]: [
-    //       network,
-    //     ],
-    //   },
-    //   defaultAsset: selectedAsset,
-    //   defaultNetwork: network,
-    //   defaultPaymentMethod: selectedPaymentMethod,
-    //   presetFiatAmount: Number(amount),
-    //   fiatCurrency: selectedPaymentCurrency,
-    //   partnerUserId: address,
-    //   redirectUrl: generateIntentsUrl(),
-    // });
 
     // Note: This is a demo app - actual payments require ownership of
     // assets and sufficient funds
@@ -796,17 +759,6 @@ export default function OnrampFeature() {
               {/* Integration Method Tabs */}
               <div className="mb-8">
                 <div className="flex space-x-2 mb-4">
-                  {/* <button
-                    className={`px-4 py-2 rounded-lg text-sm font-medium ${
-                      activeTab === "intents"
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-100 text-gray-800 border border-gray-300 hover:bg-gray-200"
-                    }`}
-                    onClick={() => setActiveTab("intents")}
-                    aria-label="Switch to Intents"
-                  >
-                    Intents
-                  </button> */}
                   <button
                     className={`px-4 py-2 rounded-lg text-sm font-medium ${
                       activeTab === "api"
@@ -1173,109 +1125,7 @@ export default function OnrampFeature() {
               </h3>
 
               <div className="flex-grow flex items-center justify-center">
-                {activeTab === "intents" ? (
-                  <div className="text-center" style={{ display: "none" }}>
-                    <div>
-                      <h1>Deposit</h1>
-                      <DepositWidget
-                        tokenList={tokenList}
-                        userAddress={address || undefined}
-                        chainType={"evm"}
-                        sendTransactionEVM={async ({ from, ...tx }) => {
-                          const result = await sendTransaction({
-                            ...tx,
-                            account: from,
-                          });
-                          return Array.isArray(result)
-                            ? result[0].transaction.hash
-                            : result;
-                        }}
-                        renderHostAppLink={renderAppLink}
-                        sendTransactionNear={async () => null}
-                        sendTransactionSolana={async () => null}
-                      />
-                    </div>
-
-                    <div>
-                      <h1>Swap</h1>
-                      <SwapWidget
-                        theme="dark"
-                        tokenList={tokenList}
-                        userAddress={address || null}
-                        userChainType={"evm"}
-                        signMessage={async (params) => {
-                          const message = params.ERC191.message;
-                          const signature = await signMessageAsync({
-                            message,
-                          });
-                          const signatureData =
-                            parseErc6492Signature(signature).signature;
-
-                          console.log("signed swap message", {
-                            message,
-                            signature,
-                            signatureData,
-                            erc6492: isErc6492Signature(signature),
-                            parsed: parseErc6492Signature(signature),
-                            equal: signatureData === signature,
-                          });
-
-                          verifyMessage({
-                            address: address! as `0x${string}`,
-                            message,
-                            signature,
-                          })
-                            .then(console.log)
-                            .catch(console.error);
-
-                          return {
-                            type: "ERC191",
-                            signatureData,
-                            signedData: { message },
-                          };
-                        }}
-                        sendNearTransaction={async () => {
-                          const result = { txHash: "123" };
-                          return result;
-                        }}
-                        onSuccessSwap={() => {}}
-                        renderHostAppLink={renderAppLink}
-                      />
-                    </div>
-
-                    <div>
-                      <h1>Withdraw</h1>
-                      <WithdrawWidget
-                        tokenList={tokenList}
-                        userAddress={address || undefined}
-                        chainType={"evm"}
-                        sendNearTransaction={async () => null}
-                        signMessage={async (params) => {
-                          const message = params.ERC191.message;
-
-                          // const signature = await signTypedData(message);
-                          const signature = await signMessageAsync({
-                            message,
-                          });
-                          const signatureData =
-                            parseErc6492Signature(signature).signature;
-
-                          console.log("signed withdraw message", {
-                            message,
-                            signature,
-                            signatureData,
-                          });
-                          return {
-                            type: "ERC191",
-                            signatureData,
-                            signedData: { message },
-                          };
-                        }}
-                        renderHostAppLink={renderAppLink}
-                      />
-                    </div>
-                  </div>
-                ) : activeTab === "api" ? (
+                {activeTab === "api" ? (
                   <div className="text-center">
                     <div
                       className={`inline-block font-medium py-3 px-8 rounded-lg transition-all shadow-md hover:shadow-lg mb-4 cursor-pointer ${
